@@ -22,10 +22,12 @@
 #include "stm32f10x.h"
 #include "stm32_eval.h"
 #include <stdio.h>
-// #include "oled.h"
+#include "oled.h"
 #include "Delay.h"
-#include "ist3931.h"
-#include "ist3931_font.h"
+#include "string.h"
+#include "Key.h"
+// #include "ist3931.h"
+// #include "ist3931_font.h"
 // #include "st7585.h"
 
 #ifdef USE_STM32100B_EVAL
@@ -85,7 +87,74 @@
 #endif /* __GNUC__ */
 
 /* Private functions ---------------------------------------------------------*/
+/*
+! 数据
+@ data_1
+@ ...
+@ data_2
+! 设备安全
+@ 设置密码
+! 版本信息
+@ 系统版本
+@ 系统序列号
+! 系统功能
+@ 重启
+@ 从PC传输数据
+*/
 
+void OLED_Display(uint8_t index);
+void OLED_SetContent(uint8_t index, const char *str);
+void MenuTask(void);
+void LimitTask(void);
+char *TitleName[] = {
+  "!:",
+  "@:",
+  "#:",
+  "M:",
+  "P:"
+};
+//此层级菜单标示"!"
+char *FirstLevelMenu[] = {
+  "Data",
+  "Safe",
+  "Infomation",
+  "System",
+};
+char *SecondLevelMenu_Data = "Samsung S20 Ultra display password";
+char *SecondLevelMenu_Safe[] = {
+  "Driver Password",
+};
+char *SecondLevelMenu_VersionInformation[] = {
+  "USB VID",
+  "System Version",
+  "Serial Number",
+};
+char *SecondLevelMenu_System[] = {
+  "Restart",
+  "Get data from PC",
+};
+char *ThridLevelMenu = "zsdfll";
+uint8_t MenuIndex[] = {
+  0, 0, 0
+};
+char *Message[] = {
+  "USB HID Send OK!",
+
+};
+char *Content = "Samsung S20 Ultra";
+uint8_t DisplayIndex = 0;
+uint8_t LevelMenuIndex = 0;
+uint8_t DisplayIndexOld = 0;
+int16_t DisplayLineX = -24;
+uint8_t KeyIndex = 0;
+uint8_t MenuFlag = 0;
+uint8_t DateLen = 0;
+
+/*
+char tmp_str[256];
+sprintf(tmp_str, "MenuIndex[%d] = %d", LevelMenuIndex, MenuIndex[LevelMenuIndex]);
+Content = tmp_str;   
+*/
 /**
   * @brief  Main program.
   * @param  None
@@ -107,52 +176,45 @@ int main(void)
     
     USART_Init(USART1, &USART_InitStructure);
     USART_Cmd(USART1, ENABLE);
-    
-    printf("\n\rIST3931 Display Test with Interlaced Scan\n\r");
-    
-    /* 初始化显示屏 */
-    IST3931_Init();
-    printf("IST3931 Initialized\n\r");
-    
-    IST3931_DelayMs(100);
-    
-    /* 测试1：使用双缓冲方式显示 */
-    printf("Test 1: Using framebuffer\n\r");
-    
-    IST3931_Clear();
-    
-    /* 在显存中画一条水平线 */
-    for (uint16_t x = 0; x < 144; x++)
-    {
-        IST3931_DrawPoint(x, 32);
-    }
-    IST3931_ShowString(0, 0, "123", IST3931_F8x16);
-    /* 显示字符串到显存 */
-    // IST3931_ShowStringBuf(10, 10, "STM32", font8x16);
-    // IST3931_ShowStringBuf(10, 30, "IST3931", font8x16);
-    
-    /* 更新显存到屏幕（自动处理隔行映射）*/
-    IST3931_Update();
-    
-    printf("Displayed using framebuffer\n\r");
-    
-    IST3931_DelayMs(2000);
-    
-    /* 测试2：直接写屏方式 - 匹配成功代码 */
-    printf("Test 2: Direct write\n\r");
-    
-    // 清屏
-    ist3931_disp_clear();
-    
-    // 直接写屏显示字符
-    // IST3931_ShowString(0, 0, "HELLO", font8x16);
-    // IST3931_ShowString(0, 2, "WORLD", font8x16);
-    
-    printf("Displayed using direct write\n\r");
-    
+
+    Key_Init();
+    OLED_Init();
+
+    OLED_SetContent(MenuIndex[LevelMenuIndex], FirstLevelMenu[MenuIndex[0]]);
+
     while (1)
     {
-        // 主循环
+      if(Key_Reads(KeyIndex) == 1){
+        if(KeyIndex == 0){
+          MenuIndex[LevelMenuIndex]++;
+          MenuFlag = 1;
+        }
+        if(KeyIndex == 1){
+          if(LevelMenuIndex < 3) LevelMenuIndex++;
+          MenuFlag = 1;   
+        }
+        if(KeyIndex == 2){
+          if(LevelMenuIndex == 1) MenuIndex[2] = 0;
+          if(LevelMenuIndex == 0) MenuIndex[1] = 0;
+          if(LevelMenuIndex == 4) LevelMenuIndex = 2;          
+          if(LevelMenuIndex > 0 && LevelMenuIndex < 3) LevelMenuIndex--;
+          MenuFlag = 1;
+        }
+        if(KeyIndex == 3){
+          if(LevelMenuIndex != DisplayIndexOld) DisplayIndexOld = LevelMenuIndex;
+          LevelMenuIndex = 3;
+          OLED_SetContent(LevelMenuIndex, Message[0]);
+        }
+        if(KeyIndex == 4){
+          MenuIndex[LevelMenuIndex]--;
+          MenuFlag = 1;
+        }                
+      }
+      if(MenuFlag) MenuTask();
+      LimitTask();
+      OLED_Display(LevelMenuIndex);
+      KeyIndex++;
+      KeyIndex %= 5;
     }
 }
 /**
@@ -192,3 +254,60 @@ void assert_failed(uint8_t* file, uint32_t line)
   }
 }
 #endif
+
+void OLED_SetContent(uint8_t index, const char *str){
+  // if(DisplayIndex != index) DisplayIndexOld = DisplayIndex;
+  DisplayLineX = -24;
+  // DisplayIndex = index;
+  Content = (char*)str;
+}
+
+void OLED_Display(uint8_t index){
+  OLED_ShowString(-(DisplayLineX++), 0, Content, OLED_8X16);
+  OLED_ShowString(0, 0, TitleName[index], OLED_8X16);
+  OLED_Update();
+  OLED_Clear();
+  if(DisplayLineX == strlen(Content) * 8){
+    DisplayLineX = -96;
+    if(LevelMenuIndex == 3){
+      LevelMenuIndex = DisplayIndexOld;
+      MenuFlag = 1;
+    }
+  }
+}
+
+void MenuTask(void){
+  MenuFlag = 0;
+  if(LevelMenuIndex == 0){
+    MenuIndex[LevelMenuIndex] %= 4;
+    OLED_SetContent(MenuIndex[LevelMenuIndex], FirstLevelMenu[MenuIndex[LevelMenuIndex]]);
+  }
+  if(LevelMenuIndex == 1 && MenuIndex[0] == 0){
+    OLED_SetContent(MenuIndex[LevelMenuIndex], SecondLevelMenu_Data);
+  }
+  if(LevelMenuIndex == 1 && MenuIndex[0] == 1){
+    MenuIndex[LevelMenuIndex] %= 1;
+    OLED_SetContent(MenuIndex[LevelMenuIndex], SecondLevelMenu_Safe[MenuIndex[LevelMenuIndex]]);
+  }
+  if(LevelMenuIndex == 1 && MenuIndex[0] == 2){
+    MenuIndex[LevelMenuIndex] %= 3;
+    OLED_SetContent(MenuIndex[LevelMenuIndex], SecondLevelMenu_VersionInformation[MenuIndex[LevelMenuIndex]]);
+  }
+  if(LevelMenuIndex == 1 && MenuIndex[0] == 3){
+    MenuIndex[LevelMenuIndex] %= 2;
+    OLED_SetContent(MenuIndex[LevelMenuIndex], SecondLevelMenu_System[MenuIndex[LevelMenuIndex]]);
+  }
+  if(LevelMenuIndex == 2 && MenuIndex[0] == 0){
+    OLED_SetContent(MenuIndex[LevelMenuIndex], ThridLevelMenu);
+    LevelMenuIndex = 4;
+  }
+  if(LevelMenuIndex == 4 &&  MenuIndex[0] == 0){
+    OLED_SetContent(MenuIndex[LevelMenuIndex], ThridLevelMenu);
+  }
+}
+
+void LimitTask(void){
+  if(MenuIndex[0] == 1 && LevelMenuIndex == 2) LevelMenuIndex = 1;
+  if(MenuIndex[0] == 2 && LevelMenuIndex == 2) LevelMenuIndex = 1;
+  if(MenuIndex[0] == 3 && LevelMenuIndex == 2) LevelMenuIndex = 1;
+}
