@@ -73,7 +73,7 @@
   #define MESSAGE2   " Device running on  " 
   #define MESSAGE3   "  STM32100E-EVAL    "   
 #endif
-
+#define UID_BASE 0x1FFFF7E8
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
  USART_InitTypeDef USART_InitStructure;
@@ -101,11 +101,14 @@
 @ 重启
 @ 从PC传输数据
 */
-
+void POSTTask(void);
 void OLED_Display(uint8_t index);
 void OLED_SetContent(uint8_t index, const char *str);
 void MenuTask(void);
 void LimitTask(void);
+void ExecTask(void);
+
+void TIM2_Init(void);
 char *TitleName[] = {
   "!:",
   "@:",
@@ -132,6 +135,7 @@ char *SecondLevelMenu_VersionInformation[] = {
 char *SecondLevelMenu_System[] = {
   "Restart",
   "Get data from PC",
+  "Test",
 };
 char *ThridLevelMenu = "zsdfll";
 uint8_t MenuIndex[] = {
@@ -141,6 +145,11 @@ char *Message[] = {
   "USB HID Send OK!",
 
 };
+//大更新  YYYYMM Ver.
+//小更新  MM.DD.YYYY Update
+char *SystemVersion = "202603 Ver.";
+char *SystemSerialNumber = "XXXXXXXXXXXX";
+char *t_SystemSafeSetPassword = "";
 char *Content = "Samsung S20 Ultra";
 uint8_t DisplayIndex = 0;
 uint8_t LevelMenuIndex = 0;
@@ -149,7 +158,10 @@ int16_t DisplayLineX = -24;
 uint8_t KeyIndex = 0;
 uint8_t MenuFlag = 0;
 uint8_t DateLen = 0;
-
+uint8_t TimerCounter = 0;
+uint8_t Click_5sec_flag = 0;
+uint8_t WorkLed = 0;
+uint8_t StatePassword = 1;
 /*
 char tmp_str[256];
 sprintf(tmp_str, "MenuIndex[%d] = %d", LevelMenuIndex, MenuIndex[LevelMenuIndex]);
@@ -162,6 +174,16 @@ Content = tmp_str;
   */
 int main(void)
 {
+
+    {
+      GPIO_InitTypeDef tmp;
+      RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);      
+      tmp.GPIO_Mode = GPIO_Mode_Out_PP;
+      tmp.GPIO_Pin = GPIO_Pin_13;
+      tmp.GPIO_Speed = GPIO_Speed_2MHz;
+      GPIO_Init(GPIOC, &tmp);      
+    }
+
     /* 串口初始化 */
     USART_InitTypeDef USART_InitStructure;
     
@@ -177,44 +199,87 @@ int main(void)
     USART_Init(USART1, &USART_InitStructure);
     USART_Cmd(USART1, ENABLE);
 
+    TIM2_Init();
+
     Key_Init();
     OLED_Init();
+
+    do{
+      OLED_Init();
+      POSTTask();
+    }while(0);
 
     OLED_SetContent(MenuIndex[LevelMenuIndex], FirstLevelMenu[MenuIndex[0]]);
 
     while (1)
     {
       if(Key_Reads(KeyIndex) == 1){
-        if(KeyIndex == 0){
-          MenuIndex[LevelMenuIndex]++;
-          MenuFlag = 1;
-        }
-        if(KeyIndex == 1){
-          if(LevelMenuIndex < 3) LevelMenuIndex++;
-          MenuFlag = 1;   
-        }
-        if(KeyIndex == 2){
-          if(LevelMenuIndex == 1) MenuIndex[2] = 0;
-          if(LevelMenuIndex == 0) MenuIndex[1] = 0;
-          if(LevelMenuIndex == 4) LevelMenuIndex = 2;          
-          if(LevelMenuIndex > 0 && LevelMenuIndex < 3) LevelMenuIndex--;
-          MenuFlag = 1;
-        }
-        if(KeyIndex == 3){
-          if(LevelMenuIndex != DisplayIndexOld) DisplayIndexOld = LevelMenuIndex;
-          LevelMenuIndex = 3;
-          OLED_SetContent(LevelMenuIndex, Message[0]);
-        }
-        if(KeyIndex == 4){
-          MenuIndex[LevelMenuIndex]--;
-          MenuFlag = 1;
-        }                
+        // 设置密码
+        // if(LevelMenuIndex == 2 && MenuIndex[0] == 1){
+        if(0){
+          char tmp_str[256];
+          strcpy(tmp_str, t_SystemSafeSetPassword);
+          if(KeyIndex == 0){
+            strcat(tmp_str, "D");
+            MenuFlag = 1;
+          }
+          if(KeyIndex == 1){
+            strcat(tmp_str, "R");
+            MenuFlag = 1;   
+          }
+          if(KeyIndex == 2){
+            strcat(tmp_str, "L");              
+            MenuFlag = 1;
+          }
+          if(KeyIndex == 3){
+            
+            MenuFlag = 1;
+          }
+          if(KeyIndex == 4){
+            strcat(tmp_str, "U"); 
+            MenuFlag = 1;
+          }   
+          t_SystemSafeSetPassword = tmp_str;         
+        }else{  //正常模式
+          if(KeyIndex == 0){
+            MenuIndex[LevelMenuIndex]++;
+            MenuFlag = 1;
+          }
+          if(KeyIndex == 1){
+            if(LevelMenuIndex < 3) LevelMenuIndex++;
+            MenuFlag = 1;   
+          }
+          if(KeyIndex == 2){
+            if(LevelMenuIndex == 1) MenuIndex[2] = 0;
+            if(LevelMenuIndex == 0) MenuIndex[1] = 0;
+            if(LevelMenuIndex == 4) LevelMenuIndex = 2;          
+            if(LevelMenuIndex > 0 && LevelMenuIndex < 3) LevelMenuIndex--;
+            MenuFlag = 1;
+          }
+          if(KeyIndex == 3){
+            if(LevelMenuIndex != DisplayIndexOld) DisplayIndexOld = LevelMenuIndex;
+            ExecTask();
+          }
+          if(KeyIndex == 4){
+            MenuIndex[LevelMenuIndex]--;
+            MenuFlag = 1;
+          }  
+        }              
       }
       if(MenuFlag) MenuTask();
+      if(Click_5sec_flag) ExecTask();
       LimitTask();
       OLED_Display(LevelMenuIndex);
       KeyIndex++;
       KeyIndex %= 5;
+      KeepClick = 0;
+      if(WorkLed){
+        GPIO_WriteBit(GPIOC, GPIO_Pin_13, Bit_SET);
+        WorkLed = 0;
+      }else{
+        GPIO_WriteBit(GPIOC, GPIO_Pin_13, Bit_RESET);
+        WorkLed = 1;
+      }
     }
 }
 /**
@@ -294,20 +359,132 @@ void MenuTask(void){
     OLED_SetContent(MenuIndex[LevelMenuIndex], SecondLevelMenu_VersionInformation[MenuIndex[LevelMenuIndex]]);
   }
   if(LevelMenuIndex == 1 && MenuIndex[0] == 3){
-    MenuIndex[LevelMenuIndex] %= 2;
+    MenuIndex[LevelMenuIndex] %= 3;
     OLED_SetContent(MenuIndex[LevelMenuIndex], SecondLevelMenu_System[MenuIndex[LevelMenuIndex]]);
   }
+  if(LevelMenuIndex == 2 && MenuIndex[0] == 1){
+    OLED_SetContent(MenuIndex[LevelMenuIndex], t_SystemSafeSetPassword);
+  }  
   if(LevelMenuIndex == 2 && MenuIndex[0] == 0){
     OLED_SetContent(MenuIndex[LevelMenuIndex], ThridLevelMenu);
     LevelMenuIndex = 4;
   }
+  if(LevelMenuIndex == 2 && MenuIndex[0] == 2 && MenuIndex[1] == 1){
+    OLED_SetContent(MenuIndex[LevelMenuIndex], SystemVersion);
+  } 
+  if(LevelMenuIndex == 2 && MenuIndex[0] == 2 && MenuIndex[1] == 2){
+    char tmp_str[128];
+    sprintf(tmp_str, "%04X%04X%04X", (uint32_t)(*((uint32_t *)UID_BASE)),
+                                      (uint32_t)(*((uint32_t *)(UID_BASE + 0x04))),
+                                      (uint32_t)(*((uint32_t *)(UID_BASE + 0x14))));
+    SystemSerialNumber = tmp_str;
+    OLED_SetContent(MenuIndex[LevelMenuIndex], SystemSerialNumber);
+  }     
   if(LevelMenuIndex == 4 &&  MenuIndex[0] == 0){
     OLED_SetContent(MenuIndex[LevelMenuIndex], ThridLevelMenu);
   }
+  if(LevelMenuIndex == 2 && MenuIndex[0] == 3){
+    char tmp_str[256];
+    sprintf(tmp_str, "TimerCounter = %d", TimerCounter);
+    Content = tmp_str;
+    OLED_SetContent(LevelMenuIndex, Content);
+  }  
 }
 
 void LimitTask(void){
-  if(MenuIndex[0] == 1 && LevelMenuIndex == 2) LevelMenuIndex = 1;
-  if(MenuIndex[0] == 2 && LevelMenuIndex == 2) LevelMenuIndex = 1;
-  if(MenuIndex[0] == 3 && LevelMenuIndex == 2) LevelMenuIndex = 1;
+  // if(MenuIndex[0] == 1 && LevelMenuIndex == 2) LevelMenuIndex = 1;
+  // if(MenuIndex[0] == 2 && LevelMenuIndex == 2) LevelMenuIndex = 1;
+  // if(MenuIndex[0] == 3 && LevelMenuIndex == 2) LevelMenuIndex = 1;
+}
+
+void POSTTask(void){
+  //OLED Display POST
+  for(uint8_t i = 0;i < 96;i++){
+    for(uint8_t j = 0;j < 16;j++) OLED_DrawPoint(i, j);
+    OLED_Update();
+  }
+}
+
+void ExecTask(void){
+  if(LevelMenuIndex == 1 && MenuIndex[0] == 3 && MenuIndex[1] == 0){
+    __set_FAULTMASK(1);
+    NVIC_SystemReset();
+  }
+  if(LevelMenuIndex == 4 && MenuIndex[0] == 0){
+    LevelMenuIndex = 3;
+    OLED_SetContent(LevelMenuIndex, Message[0]);
+  }
+  if(LevelMenuIndex == 2 && MenuIndex[0] == 1){
+    LevelMenuIndex = 1;
+  }
+}
+
+// 定时器2初始化函数 - 1秒中断
+void TIM2_Init(void)
+{
+    TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+    
+    // 1. 使能TIM2时钟
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+    
+    // 2. 计算定时器参数
+    // 系统时钟72MHz，APB1预分频器为2，TIM2时钟为72MHz
+    // 定时时间 = (prescaler + 1) * (period + 1) / TIMxCLK
+    // 1秒 = (7200 - 1 + 1) * (10000 - 1 + 1) / 72MHz = 7200 * 10000 / 72000000 = 1秒
+    
+    // 预分频值：7200-1，得到10kHz计数频率 (72MHz / 7200 = 10kHz)
+    TIM_TimeBaseStructure.TIM_Prescaler = 7200 - 1;
+    
+    // 自动重装载值：10000-1，每10000次计数产生一次中断 (10kHz / 10000 = 1Hz)
+    TIM_TimeBaseStructure.TIM_Period = 1000 - 1;
+    
+    // 设置时钟分频
+    TIM_TimeBaseStructure.TIM_ClockDivision = TIM_CKD_DIV1;
+    
+    // 设置计数模式为向上计数
+    TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
+    
+    // 初始化TIM2
+    TIM_TimeBaseInit(TIM2, &TIM_TimeBaseStructure);
+    
+    // 3. 清除更新中断标志
+    TIM_ClearFlag(TIM2, TIM_FLAG_Update);
+    
+    // 4. 使能更新中断
+    TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE);
+    
+    // 5. 配置NVIC中断优先级
+    NVIC_InitStructure.NVIC_IRQChannel = TIM2_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;  // 抢占优先级
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;         // 子优先级
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&NVIC_InitStructure);
+    
+    // 6. 使能TIM2
+    TIM_Cmd(TIM2, ENABLE);
+}
+
+// 定时器2中断服务函数
+void TIM2_IRQHandler(void)
+{
+    // 检查是否为更新中断
+    if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET)
+    {
+        // 清除中断标志位
+        TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+        
+        // 在这里添加每1秒要执行的代码
+        // 例如：翻转LED或执行其他任务.
+        if(KeepClick){
+          if(TimerCounter >= 5){
+            __set_FAULTMASK(1);
+            NVIC_SystemReset();            
+          }
+          TimerCounter++;
+          KeepClick = 0;
+        }
+        else TimerCounter = 0;
+        
+    }
 }

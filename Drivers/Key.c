@@ -19,6 +19,8 @@ uint16_t GPIO_Pin_x[5] = {
     GPIO_Pin_12
 };
 
+uint8_t KeepClick = 0;
+
 void Key_Init(){
     uint8_t index = 0;
     GPIO_InitTypeDef tmp;
@@ -39,7 +41,10 @@ uint8_t Key_Reads(uint8_t index){
 
     if(GPIO_ReadInputDataBit(GPIO_Port_x[index], GPIO_Pin_x[index]) == 0){
         Delay_ms(20);
-        while(GPIO_ReadInputDataBit(GPIO_Port_x[index], GPIO_Pin_x[index]) == 0) res = 1;
+        while(GPIO_ReadInputDataBit(GPIO_Port_x[index], GPIO_Pin_x[index]) == 0){
+            KeepClick = 1;
+            res = 1;
+        }
         Delay_ms(20);
     }
 
