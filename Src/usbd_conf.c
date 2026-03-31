@@ -71,7 +71,14 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
   if(pcdHandle->Instance==USB)
   {
   /* USER CODE BEGIN USB_MspInit 0 */
-
+    GPIO_InitTypeDef tmp = {
+      .Mode = GPIO_MODE_OUTPUT_PP,
+      .Pin = GPIO_PIN_12,
+      .Pull = GPIO_PULLUP,
+      .Speed = GPIO_SPEED_FREQ_LOW
+    };
+    HAL_GPIO_Init(GPIOA, &tmp);
+    HAL_Delay(5);
   /* USER CODE END USB_MspInit 0 */
     /* Peripheral clock enable */
     __HAL_RCC_USB_CLK_ENABLE();

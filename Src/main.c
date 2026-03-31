@@ -54,6 +54,28 @@ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE]  _
 #define HID_EPIN_SIZE                 0x08U	//Keyboard
 #define HID_MOUSE_REPORT_DESC_SIZE    63U	//Keyboard
 
+The data lenght is 256Byte
+Sector  -> 16 Data
+Block   -> 256 Data
+Chip    -> 131072 Data
+
+No        : 4Byte
+Platform  : 93Byte
+Account   : 93Byte
+Password  : 64Byte
+
+fttj
+xngkuefosdzoyhvhhdsiemhiqqqwcydppbwfeiyisyfedktwnorhjwyvnphatoicerkjcrwdkipvwbdpxzcjwngqequda
+nihatnhcjrhnowgxdbkjistbxugwerruahtfcbzigounivkkldggcpwigdjucrbowwgoaftwiklacepsonyuztvajgcvs
+fxnvplwzhjrjlrgyhtecdyazffkpbvpopvdgprflhmpqjwxkdlzifegmkjpfifjc
+
+-----------------------------
+No        : 4Byte
+Platform  : 64Byte
+Account   : 64Byte
+Password  : 64Byte
+Data Lenght -> 196Byte
+
 	*/
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
@@ -70,8 +92,9 @@ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE]  _
 #include "usbd_hid.h"
 #include "OLED.h"
 #include "Key.h"
-#include "oled_menu.h"
+// #include "oled_menu.h"
 #include "w25q256.h"
+#include "data_storage.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -92,30 +115,16 @@ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE]  _
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-MenuItem mainMenuItems[] = {
-    {"Platform Data", Func_PlatformMenu, MENU_TYPE_MAIN, NULL, 0, 0},
-    {"Set Password", Func_SetPassword, MENU_TYPE_MAIN, NULL, 0, 0},
-    {"System Version", Func_SystemVersion, MENU_TYPE_MAIN, NULL, 0, 0},
-    {"Serial Number", Func_SerialNumber, MENU_TYPE_MAIN, NULL, 0, 0},
-    {"Reboot", Func_Reboot, MENU_TYPE_MAIN, NULL, 0, 0},
-    {"Transfer Data", Func_TransferData, MENU_TYPE_MAIN, NULL, 0, 0}
-};
 
-Menu mainMenu;
 uint32_t lastSelectTime = 0;
 uint32_t tick = 0;
 uint16_t softwd = 0;
-uint8_t test_write_buf[512];
-uint8_t test_read_buf[512];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void Handle_Buttons(void);
-void W25Q256_Test_All(void);
-void W25Q256_Test_ReadID(void);
-void W25Q256_Test_EraseWriteRead(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -131,7 +140,11 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  uint8_t *flash_no_w = "\x00\x00\x00\x01";
+  uint8_t *flash_pt_w = "Github";
+  uint8_t *flash_ac_w = "User@exmple.com";
+  uint8_t *flash_ps_w = "b09cd0369bac88fb3c5f584ba3c3352e9ed32daaa2bf2ee2b5118bc80e8dee0b";
+  uint8_t flash_buff[95];
 
   /* USER CODE END 1 */
 
@@ -169,57 +182,59 @@ int main(void)
 	printf("PCLK2 Freq = %d\r\n", HAL_RCC_GetPCLK2Freq());
 	printf("SYSCLK Freq = %d\r\n", HAL_RCC_GetSysClockFreq());
 
-	HAL_TIM_Base_Start_IT(&htim2); 	//开定时�???????
-
+	HAL_TIM_Base_Start_IT(&htim2); 	
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-    // // ��ʼ�����˵�
-    // uint8_t mainMenuCount = sizeof(mainMenuItems) / sizeof(MenuItem);
-    // Menu_Init(&mainMenu, mainMenuItems, mainMenuCount, MENU_TYPE_MAIN, NULL);
-    // currentMenu = &mainMenu;
-    
-    // // ��ʾ��������
-    // OLED_Clear();
-    // OLED_ShowString(0, 0, "System Start", OLED_8X16);
-    // OLED_Update();
+    OLED_Clear();
+    OLED_ShowString(0, 0, "System Start", OLED_8X16);
+    OLED_Update();
     HAL_Delay(500);
-    // HAL_Delay(1000);
+
     
-    // // ��ʾ���˵�
-    // Menu_Display(currentMenu);
-    // lastSelectTime = HAL_GetTick();
+    OLED_Clear();
+    OLED_Printf(0, 0, OLED_8X16, "ID=%X", W25qxx_ReadID());
+    OLED_Update(); 
+    HAL_Delay(1000);
+
+    // W25qxx_EraseSector(1);   
+    // W25qxx_WritePage(flash_ps_w, 1, 4); 
+    // W25qxx_WritePage(flash_no_w, 1, 4); 
+    // W25qxx_WritePage(flash_pt_w, 5, 93); 
+    // W25qxx_WritePage(flash_ac_w, 98, 93); 
+    // W25qxx_WritePage(flash_ps_w, 191, 64);     
+    
+
+    OLED_Clear();
+    W25qxx_ReadBuffer(flash_buff, 0x01, 4);
+    OLED_Printf(0,0,OLED_6X8, "No:%X", flash_buff[3]);
+    OLED_Update();
+    W25qxx_ReadBuffer(flash_buff, 0x05, 93);
+    OLED_Printf(0,8,OLED_6X8, "Pt:%s", flash_buff);
+    OLED_Update();
+    W25qxx_ReadBuffer(flash_buff, 98, 93);
+    OLED_Printf(0,0,OLED_6X8, "At:%s", flash_buff);
+    OLED_Update();
+    W25qxx_ReadBuffer(flash_buff, 191, 93);
+    OLED_Printf(0,8,OLED_6X8, "Ps:%s", flash_buff);
+    OLED_Update();
+
 
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    // OLED_ShowString(0, 0, "W25Q256 Test", OLED_6X8);
+    Handle_Buttons();
 
-	// KeyDebug();
-	// Handle_Buttons();
-		
-	// ����������ѡ��1.5���???
-	// if (!currentMenu->scrollState.isScrolling && 
-	// 	HAL_GetTick() - lastSelectTime > 1500) {
-	// 	Menu_StartScroll(currentMenu, currentMenu->currentIndex);
-	// }
-	
-	// Menu_UpdateScroll(currentMenu);
 
-   	// USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
-	// OLED_Update();
-  // OLED_Clear();
-  HAL_Delay(500);
-	// for (uint8_t i = 0;i < 5;i++){
-	// 	KeyState[i] = KeyInputBuff[i].KeyState == KEY_HOLD ? 1 : 0;
-	// }
-	// softwd = 0;
-  }
-  /* USER CODE END 3 */
+      // USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
+    OLED_Update();
+    softwd = 0;
+    }
+    /* USER CODE END 3 */
 }
 
 /**
@@ -278,20 +293,20 @@ void Handle_Buttons(void) {
     
     // �󰴼� - ����
     if (KeyInputBuff[0].KeyState != KEY_UP) {
-        Menu_Back();
+        // Menu_Back();
         KeyInputBuff[0].KeyState = KEY_UP;  // �������״�?
         lastKeyTime = currentTime;
     }
     // �ϰ���
     if (KeyInputBuff[1].KeyState != KEY_UP) {
-        Menu_Up(currentMenu);
+        // Menu_Up(currentMenu);
         KeyInputBuff[1].KeyState = KEY_UP;  // �������״�?
         lastSelectTime = currentTime;
         lastKeyTime = currentTime;
     }
     // OK����
     if (KeyInputBuff[2].KeyState != KEY_UP) {
-        Menu_Enter(currentMenu);
+        // Menu_Enter(currentMenu);
         KeyState[2] = 0;  // �������״�?
         lastKeyTime = currentTime;
     }
@@ -302,7 +317,7 @@ void Handle_Buttons(void) {
     }
     // �°���
     if (KeyInputBuff[4].KeyState != KEY_UP) {
-        Menu_Down(currentMenu);
+        // Menu_Down(currentMenu);
         KeyState[4] = 0;  // �������״�?
         lastSelectTime = currentTime;
         lastKeyTime = currentTime;
@@ -321,10 +336,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		KeyScan(KeyInputBuff + 3);
 		KeyScan(KeyInputBuff + 4);
 
-		// softwd++;
-		// if(softwd > 10000){
-		// 	Func_Reboot();
-		// }
+		softwd++;
+		if(softwd > 10000){
+			// Func_Reboot();
+		}
 	}
 }
 

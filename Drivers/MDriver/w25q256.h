@@ -3,7 +3,11 @@
  
 #include <stdbool.h>
 #include "spi.h"
- 
+
+/*
+
+*/
+
 #define SPI_FLASH_PageSize                  	256
 #define SPI_FLASH_PerWritePageSize          	256
  
@@ -11,12 +15,12 @@
 #define W25X_WriteDisable		              	0x04 
 #define W25X_ReadStatusReg1		              	0x05 
 #define W25X_WriteStatusReg1	              	0x01 
-#define W25X_ReadData			              	0x03 
+#define W25X_ReadData			              	0x13 
 #define W25X_FastReadData		              	0x0B 
 #define W25X_FastReadDual		              	0x3B 
-#define W25X_PageProgram		              	0x02 
-#define W25X_BlockErase			              	0xD8 
-#define W25X_SectorErase		              	0x20 
+#define W25X_PageProgram		              	0x12 
+#define W25X_BlockErase			              	0xDC 
+#define W25X_SectorErase		              	0x21 
 #define W25X_ChipErase			              	0xC7 
 #define W25X_PowerDown			              	0xB9 
 #define W25X_ReleasePowerDown	              	0xAB 

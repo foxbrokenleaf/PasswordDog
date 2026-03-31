@@ -1,224 +1,378 @@
-/* data_storage.c - 数据存储管理实现 */
+/* data_storage.c - W25Q256 数据存储实现 */
 #include "data_storage.h"
-#include "oled_menu.h"
 #include <string.h>
 #include <stdio.h>
 
-// 全局数据缓存
-PlatformData g_platformData[50];
-uint8_t g_platformCount = 0;
+// 存储头部地址
+#define HEADER_ADDR             STORAGE_START_ADDR
+#define FIRST_RECORD_ADDR       (STORAGE_START_ADDR + sizeof(StorageHeader))
+
+// 静态变量
+static StorageHeader g_header;
+static bool g_headerLoaded = false;
 
 // 计算校验和
 static uint32_t CalculateChecksum(uint8_t* data, uint16_t len) {
     uint32_t sum = 0;
-    for (uint16_t i = 0; i < len; i++) {
+    uint16_t i;
+    for (i = 0; i < len; i++) {
         sum += data[i];
     }
     return sum;
 }
 
-// 初始化存储系统
-bool DataStorage_Init(void) {
-    StorageHeader header;
+// 计算记录的校验字节
+static uint8_t CalculateRecordCheckByte(PlatformRecord* record) {
+    uint8_t sum = 0;
+    uint8_t* p = (uint8_t*)record;
+    uint16_t i;
     
-    // 先尝试读取头部
-    W25qxx_ReadBuffer((uint8_t*)&header, STORAGE_START_ADDR, sizeof(StorageHeader));
-    
-    // 检查魔数是否有效
-    if (header.magic == STORAGE_MAGIC_NUMBER && header.version == STORAGE_VERSION) {
-        // 有效数据，加载所有平台
-        return DataStorage_LoadAllPlatforms();
-    } else {
-        // 无效数据，格式化存储区域
-        return DataStorage_Format();
+    for (i = 0; i < sizeof(PlatformRecord) - 1; i++) {
+        sum += p[i];
     }
+    return ~sum + 1;  // 补码
 }
 
-// 保存单个平台数据
-bool DataStorage_SavePlatform(uint16_t index, const char* platform, const char* account, const char* password) {
-    StoredPlatformData data;
+// 验证记录
+static bool IsRecordValid(PlatformRecord* record) {
+    uint8_t checkByte = CalculateRecordCheckByte(record);
+    return (checkByte == 0);  // 有效记录所有字节和应为0
+}
+
+// 获取记录存储地址
+static uint32_t GetRecordAddress(uint32_t recordNo) {
+    return FIRST_RECORD_ADDR + (recordNo - 1) * RECORD_SIZE;
+}
+
+// 加载头部
+static bool LoadHeader(void) {
+    if (g_headerLoaded) return true;
+    
+    W25qxx_ReadBuffer((uint8_t*)&g_header, HEADER_ADDR, sizeof(StorageHeader));
+    
+    if (g_header.magic == STORAGE_MAGIC_NUMBER && g_header.version == STORAGE_VERSION) {
+        // 验证校验和
+        uint32_t calcChecksum = CalculateChecksum((uint8_t*)&g_header, sizeof(StorageHeader) - 4);
+        if (calcChecksum == g_header.checksum) {
+            g_headerLoaded = true;
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// 保存头部
+static bool SaveHeader(void) {
+    g_header.checksum = CalculateChecksum((uint8_t*)&g_header, sizeof(StorageHeader) - 4);
+    
+    // 先擦除头部扇区
+    uint32_t sectorAddr = HEADER_ADDR & ~(w25qxx.SectorSize - 1);
+    W25qxx_EraseSector(sectorAddr);
+    
+    // 写入头部
+    W25qxx_WriteBuffer((uint8_t*)&g_header, HEADER_ADDR, sizeof(StorageHeader));
+    
+    return true;
+}
+
+// 初始化存储系统
+bool DataStorage_Init(void) {
+    if (!LoadHeader()) {
+        return DataStorage_Format();
+    }
+    return true;
+}
+
+// 格式化存储
+bool DataStorage_Format(void) {
+    // 初始化头部
+    memset(&g_header, 0, sizeof(StorageHeader));
+    g_header.magic = STORAGE_MAGIC_NUMBER;
+    g_header.version = STORAGE_VERSION;
+    g_header.maxRecords = MAX_RECORD_COUNT;
+    g_header.usedRecords = 0;
+    g_header.nextRecordNo = 1;
+    
+    // 保存头部
+    if (!SaveHeader()) return false;
+    
+    g_headerLoaded = true;
+    return true;
+}
+
+// 添加记录
+uint32_t DataStorage_AddRecord(const char* platform, const char* account, const char* password) {
+    PlatformRecord record;
+    uint32_t recordNo;
     uint32_t addr;
-    StorageHeader header;
     
-    if (index >= 100) return false;
+    if (!g_headerLoaded) LoadHeader();
     
-    // 准备数据
-    memset(&data, 0xFF, sizeof(StoredPlatformData));
-    strncpy(data.platform, platform, sizeof(data.platform) - 1);
-    strncpy(data.account, account, sizeof(data.account) - 1);
-    strncpy(data.password, password, sizeof(data.password) - 1);
-    data.isValid = 0x5A;  // 有效标志
+    // 检查是否还有空间
+    if (g_header.usedRecords >= g_header.maxRecords) {
+        return 0;
+    }
     
-    // 计算存储地址（跳过头部，每个平台占256字节）
-    addr = STORAGE_START_ADDR + sizeof(StorageHeader) + index * sizeof(StoredPlatformData);
+    // 获取下一个可用的记录号
+    recordNo = g_header.nextRecordNo;
     
-    // 先擦除对应的扇区（如果需要）
+    // 准备记录
+    memset(&record, 0, sizeof(PlatformRecord));
+    record.no = recordNo;
+    strncpy(record.platform, platform, sizeof(record.platform) - 1);
+    record.platform[sizeof(record.platform) - 1] = '\0';
+    strncpy(record.account, account, sizeof(record.account) - 1);
+    record.account[sizeof(record.account) - 1] = '\0';
+    strncpy(record.password, password, sizeof(record.password) - 1);
+    record.password[sizeof(record.password) - 1] = '\0';
+    
+    // 计算存储地址
+    addr = GetRecordAddress(recordNo);
+    
+    // 擦除所在扇区（如果需要）
     uint32_t sectorAddr = addr & ~(w25qxx.SectorSize - 1);
     if ((addr % w25qxx.SectorSize) == 0) {
         W25qxx_EraseSector(sectorAddr);
     }
     
-    // 写入数据
-    W25qxx_WriteBuffer((uint8_t*)&data, addr, sizeof(StoredPlatformData));
+    // 写入记录
+    W25qxx_WriteBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
     
-    // 更新头部信息
-    W25qxx_ReadBuffer((uint8_t*)&header, STORAGE_START_ADDR, sizeof(StorageHeader));
+    // 更新头部
+    g_header.usedRecords++;
+    g_header.nextRecordNo++;
     
-    if (header.magic != STORAGE_MAGIC_NUMBER) {
-        // 首次写入，初始化头部
-        header.magic = STORAGE_MAGIC_NUMBER;
-        header.version = STORAGE_VERSION;
-        header.itemCount = 0;
+    // 查找下一个有效记录号（跳过可能被删除的）
+    while (g_header.nextRecordNo <= g_header.maxRecords) {
+        PlatformRecord testRecord;
+        uint32_t testAddr = GetRecordAddress(g_header.nextRecordNo);
+        W25qxx_ReadBuffer((uint8_t*)&testRecord, testAddr, sizeof(PlatformRecord));
+        if (!IsRecordValid(&testRecord)) {
+            break;
+        }
+        g_header.nextRecordNo++;
     }
     
-    // 更新数量
-    if (index >= header.itemCount) {
-        header.itemCount = index + 1;
+    SaveHeader();
+    
+    return recordNo;
+}
+
+// 根据记录号获取记录
+bool DataStorage_GetRecord(uint32_t recordNo, char* platform, char* account, char* password) {
+    PlatformRecord record;
+    uint32_t addr;
+    
+    if (recordNo < 1 || recordNo > g_header.maxRecords) {
+        return false;
     }
     
-    // 计算校验和
-    header.checksum = CalculateChecksum((uint8_t*)&header, sizeof(StorageHeader) - 4);
+    addr = GetRecordAddress(recordNo);
+    W25qxx_ReadBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
     
-    // 写入头部
-    W25qxx_EraseSector(STORAGE_START_ADDR);
-    W25qxx_WriteBuffer((uint8_t*)&header, STORAGE_START_ADDR, sizeof(StorageHeader));
+    // 验证记录
+    if (!IsRecordValid(&record)) {
+        return false;
+    }
+    
+    if (platform) strcpy(platform, record.platform);
+    if (account) strcpy(account, record.account);
+    if (password) strcpy(password, record.password);
     
     return true;
 }
 
-// 加载单个平台数据
-bool DataStorage_LoadPlatform(uint16_t index, char* platform, char* account, char* password, uint8_t* isValid) {
-    StoredPlatformData data;
-    uint32_t addr;
-    StorageHeader header;
+// 根据索引获取记录（用于遍历）
+bool DataStorage_GetRecordByIndex(uint32_t index, char* platform, char* account, char* password, uint32_t* recordNo) {
+    uint32_t found = 0;
     
-    // 读取头部验证
-    W25qxx_ReadBuffer((uint8_t*)&header, STORAGE_START_ADDR, sizeof(StorageHeader));
-    if (header.magic != STORAGE_MAGIC_NUMBER || index >= header.itemCount) {
-        return false;
-    }
-    
-    // 计算存储地址
-    addr = STORAGE_START_ADDR + sizeof(StorageHeader) + index * sizeof(StoredPlatformData);
-    
-    // 读取数据
-    W25qxx_ReadBuffer((uint8_t*)&data, addr, sizeof(StoredPlatformData));
-    
-    // 复制数据
-    if (platform) strcpy(platform, data.platform);
-    if (account) strcpy(account, data.account);
-    if (password) strcpy(password, data.password);
-    if (isValid) *isValid = (data.isValid == 0x5A) ? 1 : 0;
-    
-    return (data.isValid == 0x5A);
-}
-
-// 加载所有平台数据到内存
-bool DataStorage_LoadAllPlatforms(void) {
-    StorageHeader header;
-    StoredPlatformData data;
-    uint32_t addr;
-    
-    // 读取头部
-    W25qxx_ReadBuffer((uint8_t*)&header, STORAGE_START_ADDR, sizeof(StorageHeader));
-    
-    if (header.magic != STORAGE_MAGIC_NUMBER) {
-        g_platformCount = 0;
-        return false;
-    }
-    
-    // 验证校验和
-    uint32_t calcChecksum = CalculateChecksum((uint8_t*)&header, sizeof(StorageHeader) - 4);
-    if (calcChecksum != header.checksum) {
-        g_platformCount = 0;
-        return false;
-    }
-    
-    // 加载所有平台
-    g_platformCount = 0;
-    for (uint16_t i = 0; i < header.itemCount && i < 50; i++) {
-        addr = STORAGE_START_ADDR + sizeof(StorageHeader) + i * sizeof(StoredPlatformData);
-        W25qxx_ReadBuffer((uint8_t*)&data, addr, sizeof(StoredPlatformData));
+    for (uint32_t i = 1; i <= g_header.maxRecords && found <= index; i++) {
+        PlatformRecord record;
+        uint32_t addr = GetRecordAddress(i);
         
-        if (data.isValid == 0x5A) {
-            strcpy(g_platformData[g_platformCount].platform, data.platform);
-            strcpy(g_platformData[g_platformCount].account, data.account);
-            strcpy(g_platformData[g_platformCount].password, data.password);
-            g_platformData[g_platformCount].isValid = 1;
-            g_platformCount++;
+        W25qxx_ReadBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
+        
+        if (IsRecordValid(&record)) {
+            if (found == index) {
+                if (platform) strcpy(platform, record.platform);
+                if (account) strcpy(account, record.account);
+                if (password) strcpy(password, record.password);
+                if (recordNo) *recordNo = record.no;
+                return true;
+            }
+            found++;
         }
     }
     
-    return true;
+    return false;
 }
 
-// 删除平台数据
-bool DataStorage_DeletePlatform(uint16_t index) {
-    StoredPlatformData data;
+// 删除记录
+bool DataStorage_DeleteRecord(uint32_t recordNo) {
+    PlatformRecord record;
     uint32_t addr;
-    StorageHeader header;
     
-    // 读取头部
-    W25qxx_ReadBuffer((uint8_t*)&header, STORAGE_START_ADDR, sizeof(StorageHeader));
-    if (header.magic != STORAGE_MAGIC_NUMBER || index >= header.itemCount) {
+    if (!g_headerLoaded) LoadHeader();
+    if (recordNo < 1 || recordNo > g_header.maxRecords) {
         return false;
     }
     
-    // 标记为无效
-    addr = STORAGE_START_ADDR + sizeof(StorageHeader) + index * sizeof(StoredPlatformData);
-    memset(&data, 0xFF, sizeof(StoredPlatformData));
-    data.isValid = 0x00;  // 标记无效
+    addr = GetRecordAddress(recordNo);
+    W25qxx_ReadBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
     
-    W25qxx_WriteBuffer((uint8_t*)&data, addr, sizeof(StoredPlatformData));
+    if (!IsRecordValid(&record)) {
+        return false;
+    }
+    
+    // 清除记录（全部写0）
+    memset(&record, 0, sizeof(PlatformRecord));
+    W25qxx_WriteBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
+    
+    // 更新头部
+    g_header.usedRecords--;
+    
+    // 如果删除的记录号小于 nextRecordNo，更新 nextRecordNo
+    if (recordNo < g_header.nextRecordNo) {
+        g_header.nextRecordNo = recordNo;
+    }
+    
+    SaveHeader();
     
     return true;
 }
 
-// 获取存储的平台数量
-uint16_t DataStorage_GetPlatformCount(void) {
-    StorageHeader header;
-    W25qxx_ReadBuffer((uint8_t*)&header, STORAGE_START_ADDR, sizeof(StorageHeader));
+// 更新记录
+bool DataStorage_UpdateRecord(uint32_t recordNo, const char* platform, const char* account, const char* password) {
+    PlatformRecord record;
+    uint32_t addr;
     
-    if (header.magic == STORAGE_MAGIC_NUMBER) {
-        return header.itemCount;
+    if (recordNo < 1 || recordNo > g_header.maxRecords) {
+        return false;
     }
-    return 0;
-}
-
-// 格式化存储区域
-bool DataStorage_Format(void) {
-    StorageHeader header;
     
-    // 初始化头部
-    memset(&header, 0xFF, sizeof(header));
-    header.magic = STORAGE_MAGIC_NUMBER;
-    header.version = STORAGE_VERSION;
-    header.itemCount = 0;
-    header.checksum = CalculateChecksum((uint8_t*)&header, sizeof(StorageHeader) - 4);
+    addr = GetRecordAddress(recordNo);
     
-    // 擦除并写入头部
-    W25qxx_EraseSector(STORAGE_START_ADDR);
-    W25qxx_WriteBuffer((uint8_t*)&header, STORAGE_START_ADDR, sizeof(StorageHeader));
+    // 读取现有记录
+    W25qxx_ReadBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
     
-    g_platformCount = 0;
-    memset(g_platformData, 0, sizeof(g_platformData));
+    if (!IsRecordValid(&record)) {
+        return false;
+    }
+    
+    // 更新字段
+    if (platform) {
+        strncpy(record.platform, platform, sizeof(record.platform) - 1);
+        record.platform[sizeof(record.platform) - 1] = '\0';
+    }
+    if (account) {
+        strncpy(record.account, account, sizeof(record.account) - 1);
+        record.account[sizeof(record.account) - 1] = '\0';
+    }
+    if (password) {
+        strncpy(record.password, password, sizeof(record.password) - 1);
+        record.password[sizeof(record.password) - 1] = '\0';
+    }
+    
+    // 写回
+    W25qxx_WriteBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
     
     return true;
 }
 
-// 添加新平台（辅助函数）
-bool DataStorage_AddPlatform(const char* platform, const char* account, const char* password) {
-    uint16_t count = DataStorage_GetPlatformCount();
-    if (count >= 50) return false;
-    
-    if (DataStorage_SavePlatform(count, platform, account, password)) {
-        // 更新内存缓存
-        strcpy(g_platformData[g_platformCount].platform, platform);
-        strcpy(g_platformData[g_platformCount].account, account);
-        strcpy(g_platformData[g_platformCount].password, password);
-        g_platformData[g_platformCount].isValid = 1;
-        g_platformCount++;
-        return true;
+// 获取总记录数（包括已删除的）
+uint32_t DataStorage_GetTotalCount(void) {
+    if (!g_headerLoaded) LoadHeader();
+    return g_header.maxRecords;
+}
+
+// 获取有效记录数
+uint32_t DataStorage_GetValidCount(void) {
+    if (!g_headerLoaded) LoadHeader();
+    return g_header.usedRecords;
+}
+
+// 根据平台名称查找
+bool DataStorage_FindByPlatform(const char* platform, uint32_t* recordNo) {
+    for (uint32_t i = 1; i <= g_header.maxRecords; i++) {
+        PlatformRecord record;
+        uint32_t addr = GetRecordAddress(i);
+        
+        W25qxx_ReadBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
+        
+        if (IsRecordValid(&record) && strcmp(record.platform, platform) == 0) {
+            if (recordNo) *recordNo = record.no;
+            return true;
+        }
     }
+    
     return false;
+}
+
+// 获取所有平台名称
+void DataStorage_GetAllPlatforms(char platforms[][128], uint32_t* count) {
+    uint32_t idx = 0;
+    
+    for (uint32_t i = 1; i <= g_header.maxRecords && idx < *count; i++) {
+        PlatformRecord record;
+        uint32_t addr = GetRecordAddress(i);
+        
+        W25qxx_ReadBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
+        
+        if (IsRecordValid(&record)) {
+            strcpy(platforms[idx], record.platform);
+            idx++;
+        }
+    }
+    
+    *count = idx;
+}
+
+// 碎片整理
+bool DataStorage_Defragment(void) {
+    uint32_t writePos = 1;
+    PlatformRecord tempRecords[MAX_RECORD_COUNT];
+    uint32_t validCount = 0;
+    
+    // 收集所有有效记录
+    for (uint32_t i = 1; i <= g_header.maxRecords; i++) {
+        PlatformRecord record;
+        uint32_t addr = GetRecordAddress(i);
+        
+        W25qxx_ReadBuffer((uint8_t*)&record, addr, sizeof(PlatformRecord));
+        
+        if (IsRecordValid(&record)) {
+            memcpy(&tempRecords[validCount], &record, sizeof(PlatformRecord));
+            tempRecords[validCount].no = writePos;
+            validCount++;
+            writePos++;
+        }
+    }
+    
+    // 擦除数据区域
+    for (uint32_t sector = 0; sector < (w25qxx.SectorCount); sector++) {
+        W25qxx_EraseSector(STORAGE_START_ADDR + sector * w25qxx.SectorSize);
+    }
+    
+    // 重新写入头部
+    SaveHeader();
+    
+    // 重新写入记录
+    for (uint32_t i = 0; i < validCount; i++) {
+        uint32_t addr = GetRecordAddress(i + 1);
+        W25qxx_WriteBuffer((uint8_t*)&tempRecords[i], addr, sizeof(PlatformRecord));
+    }
+    
+    // 更新头部
+    g_header.usedRecords = validCount;
+    g_header.nextRecordNo = validCount + 1;
+    SaveHeader();
+    
+    return true;
+}
+
+// 获取剩余空间（可存储的记录数）
+uint32_t DataStorage_GetFreeSpace(void) {
+    if (!g_headerLoaded) LoadHeader();
+    return g_header.maxRecords - g_header.usedRecords;
 }
