@@ -62,18 +62,19 @@ Chip    -> 131072 Data
 No        : 4Byte
 Platform  : 93Byte
 Account   : 93Byte
-Password  : 64Byte
+Password  : 32Byte
 
 fttj
 xngkuefosdzoyhvhhdsiemhiqqqwcydppbwfeiyisyfedktwnorhjwyvnphatoicerkjcrwdkipvwbdpxzcjwngqequda
 nihatnhcjrhnowgxdbkjistbxugwerruahtfcbzigounivkkldggcpwigdjucrbowwgoaftwiklacepsonyuztvajgcvs
 fxnvplwzhjrjlrgyhtecdyazffkpbvpopvdgprflhmpqjwxkdlzifegmkjpfifjc
 
+
 -----------------------------
 No        : 4Byte
 Platform  : 64Byte
 Account   : 64Byte
-Password  : 64Byte
+Password  : 32Byte
 Data Lenght -> 196Byte
 
 	*/
@@ -95,6 +96,7 @@ Data Lenght -> 196Byte
 // #include "oled_menu.h"
 #include "w25q256.h"
 #include "data_storage.h"
+#include "sha_256.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -140,12 +142,9 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  uint8_t *flash_no_w = "\x00\x00\x00\x01";
-  uint8_t *flash_pt_w = "Github";
-  uint8_t *flash_ac_w = "User@exmple.com";
-  uint8_t *flash_ps_w = "b09cd0369bac88fb3c5f584ba3c3352e9ed32daaa2bf2ee2b5118bc80e8dee0b";
-  uint8_t flash_buff[95];
-
+  SHA256_CTX ctx;
+  uint8_t hash[32];
+  uint32_t data = 20230304;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -193,34 +192,16 @@ int main(void)
     OLED_Update();
     HAL_Delay(500);
 
-    
-    OLED_Clear();
-    OLED_Printf(0, 0, OLED_8X16, "ID=%X", W25qxx_ReadID());
-    OLED_Update(); 
-    HAL_Delay(1000);
-
-    // W25qxx_EraseSector(1);   
-    // W25qxx_WritePage(flash_ps_w, 1, 4); 
-    // W25qxx_WritePage(flash_no_w, 1, 4); 
-    // W25qxx_WritePage(flash_pt_w, 5, 93); 
-    // W25qxx_WritePage(flash_ac_w, 98, 93); 
-    // W25qxx_WritePage(flash_ps_w, 191, 64);     
-    
+    SHA256_Init(&ctx);
+    SHA256_Update(&ctx, &data, 8);
+    SHA256_Final(&ctx, hash);
 
     OLED_Clear();
-    W25qxx_ReadBuffer(flash_buff, 0x01, 4);
-    OLED_Printf(0,0,OLED_6X8, "No:%X", flash_buff[3]);
+    for(uint8_t i = 0;i < 16;i++){
+      OLED_ShowHexNum(i * 12, 0, hash[i], 2, OLED_6X8);
+      OLED_ShowHexNum(i * 12, 8, hash[16 + i], 2, OLED_6X8);
+    }
     OLED_Update();
-    W25qxx_ReadBuffer(flash_buff, 0x05, 93);
-    OLED_Printf(0,8,OLED_6X8, "Pt:%s", flash_buff);
-    OLED_Update();
-    W25qxx_ReadBuffer(flash_buff, 98, 93);
-    OLED_Printf(0,0,OLED_6X8, "At:%s", flash_buff);
-    OLED_Update();
-    W25qxx_ReadBuffer(flash_buff, 191, 93);
-    OLED_Printf(0,8,OLED_6X8, "Ps:%s", flash_buff);
-    OLED_Update();
-
 
   while (1)
   {
@@ -362,7 +343,7 @@ void Error_Handler(void)
 #ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
+       where the assert_param error has occurred.
   * @param  file: pointer to the source file name
   * @param  line: assert_param error line source number
   * @retval None
