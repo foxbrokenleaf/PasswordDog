@@ -22,6 +22,7 @@
 
 /* USER CODE BEGIN 0 */
 #include <stdio.h>
+#include "usbd_cdc_if.h"
 /* USER CODE END 0 */
 
 UART_HandleTypeDef huart1;
@@ -130,6 +131,7 @@ PUTCHAR_PROTOTYPE
   /* Place your implementation of fputc here */
   /* e.g. write a character to the USART */
   HAL_UART_Transmit(&huart1, (uint8_t*) &ch, 1, HAL_TIMEOUT);
+  
 
   return ch;
 }

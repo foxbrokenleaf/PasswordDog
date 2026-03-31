@@ -90,7 +90,6 @@ Data Lenght -> 196Byte
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
-#include "usbd_hid.h"
 #include "OLED.h"
 #include "Key.h"
 // #include "oled_menu.h"
@@ -98,6 +97,7 @@ Data Lenght -> 196Byte
 #include "data_storage.h"
 #include "sha_256.h"
 #include "InternalFlash.h"
+#include "usbd_cdc_if.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -126,12 +126,15 @@ uint16_t softwd = 0;
 uint8_t DriverLock = 1;
 uint8_t UnlockPassword[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 uint8_t UnlockPasswordIndex = 0;
+uint8_t ResetPassword = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void Handle_Buttons(void);
+void PasswordUI(void);
+void VerifyPassword(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -184,6 +187,12 @@ int main(void)
 	printf("PCLK2 Freq = %d\r\n", HAL_RCC_GetPCLK2Freq());
 	printf("SYSCLK Freq = %d\r\n", HAL_RCC_GetSysClockFreq());
 
+	usb_printf("Initialize done!\r\n"); 
+	usb_printf("HCLK Freq = %d\r\n", HAL_RCC_GetHCLKFreq());
+	usb_printf("PCLK1 Freq = %d\r\n", HAL_RCC_GetPCLK1Freq());
+	usb_printf("PCLK2 Freq = %d\r\n", HAL_RCC_GetPCLK2Freq());
+	usb_printf("SYSCLK Freq = %d\r\n", HAL_RCC_GetSysClockFreq());  
+
 	HAL_TIM_Base_Start_IT(&htim2); 	
 
   /* USER CODE END 2 */
@@ -201,12 +210,9 @@ int main(void)
     Handle_Buttons();
 
     if(DriverLock){
-      OLED_ShowChar(UnlockPasswordIndex * 12, 0, '+', OLED_6X8);
-      //0 12 24 36 48 60 72 84
-      OLED_Printf(0, 8, OLED_6X8, "%01d %01d %01d %01d %01d %01d %01d %01d", UnlockPassword[0], 
-        UnlockPassword[1], UnlockPassword[2], UnlockPassword[3], UnlockPassword[4], UnlockPassword[5], 
-        UnlockPassword[6], UnlockPassword[7]);
+      PasswordUI();
     }
+    
     OLED_Update();
     OLED_Clear();
     softwd = 0;
@@ -218,14 +224,15 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
   Handle_Buttons();
+  OLED_ShowString(0, 0, "      MAIN      ", OLED_6X8);
+  OLED_Printf(0, 0, OLED_6X8, "Left:%d", KeyInputBuff[0].KeyState);
   
-
     // USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
   OLED_Update();
   OLED_Clear();
   softwd = 0;
   }
-    /* USER CODE END 3 */
+  /* USER CODE END 3 */
 }
 
 /**
@@ -305,33 +312,7 @@ void Handle_Buttons(void) {
           SHA256_Init(&ctx);
           SHA256_Update(&ctx, &tmp_pwd, 8);
           SHA256_Final(&ctx, hash);
-          /* ³õÊ¼»¯ */
-          INTFLASH_Init();
-          /* ²Á³ýÓÃ»§ÇøÓò */
-          uint8_t result = 0;
-          uint8_t read_data[32];
-          uint32_t hasPWD = 0x00;
-          if (result == INTFLASH_OK) {
-              /* Ð´ÈëÊý¾Ý */
-              INTFLASH_ReadBuffer(INTFLASH_USER_START_ADDR, read_data, sizeof(hash));
-              for(uint8_t i = 0;i < 32;i++) if(read_data[i] == 0xFF) hasPWD = hasPWD | (0x80000000 >> i);
-              if(hasPWD == 0xFFFFFFFF) result = INTFLASH_WriteBuffer(INTFLASH_USER_START_ADDR, hash, sizeof(hash));
-              if (result == INTFLASH_OK) {
-                  /* ¶ÁÈ¡Êý¾Ý */
-                  INTFLASH_ReadBuffer(INTFLASH_USER_START_ADDR, read_data, sizeof(hash));
-                  /* ÑéÖ¤ */
-                  if (INTFLASH_VerifyData(INTFLASH_USER_START_ADDR, hash, sizeof(hash))) {
-                      /* ³É¹¦ */
-                      OLED_ShowString(0,0,"  WELCOME  ", OLED_8X16);
-                      OLED_Update();
-                      HAL_Delay(500);
-                      DriverLock = 0;
-                  }
-              }
-          }
-          
-          /* Ëø¶¨Flash */
-          INTFLASH_DeInit();          
+          VerifyPassword();
           lastKeyTime = currentTime;
       }
       // Right
@@ -376,7 +357,43 @@ void Handle_Buttons(void) {
     }
 }
 
+void PasswordUI(void){
+  OLED_ShowChar(UnlockPasswordIndex * 12, 0, '+', OLED_6X8);
+  //0 12 24 36 48 60 72 84
+  OLED_Printf(0, 8, OLED_6X8, "%01d %01d %01d %01d %01d %01d %01d %01d", UnlockPassword[0], 
+    UnlockPassword[1], UnlockPassword[2], UnlockPassword[3], UnlockPassword[4], UnlockPassword[5], 
+    UnlockPassword[6], UnlockPassword[7]);
+}
 
+void VerifyPassword(void){
+  /* ï¿½ï¿½Ê¼ï¿½ï¿½ */
+  INTFLASH_Init();
+  if(ResetPassword) INTFLASH_EraseUserArea();
+  uint8_t result = 0;
+  uint8_t read_data[32];
+  uint32_t hasPWD = 0x00;
+  if (result == INTFLASH_OK) {
+      /* Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
+      INTFLASH_ReadBuffer(INTFLASH_USER_START_ADDR, read_data, sizeof(hash));
+      for(uint8_t i = 0;i < 32;i++) if(read_data[i] == 0xFF) hasPWD = hasPWD | (0x80000000 >> i);
+      if(hasPWD == 0xFFFFFFFF) result = INTFLASH_WriteBuffer(INTFLASH_USER_START_ADDR, hash, sizeof(hash));
+      if (result == INTFLASH_OK) {
+          /* ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ */
+          INTFLASH_ReadBuffer(INTFLASH_USER_START_ADDR, read_data, sizeof(hash));
+          /* ï¿½ï¿½Ö¤ */
+          if (INTFLASH_VerifyData(INTFLASH_USER_START_ADDR, hash, sizeof(hash))) {
+              /* ï¿½É¹ï¿½ */
+              OLED_ShowString(0,0,"  WELCOME  ", OLED_8X16);
+              OLED_Update();
+              HAL_Delay(500);
+              DriverLock = 0;
+          }
+      }
+  }
+  
+  /* ï¿½ï¿½ï¿½ï¿½Flash */
+  INTFLASH_DeInit();    
+}
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -414,7 +431,7 @@ void Error_Handler(void)
 #ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
-       where the assert_param error has occurred.
+  *         where the assert_param error has occurred.
   * @param  file: pointer to the source file name
   * @param  line: assert_param error line source number
   * @retval None

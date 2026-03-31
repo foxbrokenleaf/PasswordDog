@@ -738,6 +738,7 @@ void OLED_Printf_New(int16_t X, int16_t Y, uint8_t FontSize, char *format, ...)
     uint8_t charWidth = 0;
     uint8_t charHeight = 0;
     uint8_t maxLineChars = 0;
+    uint8_t maxLines = 0;
     
     if (FontSize == OLED_8X16)
     {
@@ -752,7 +753,7 @@ void OLED_Printf_New(int16_t X, int16_t Y, uint8_t FontSize, char *format, ...)
         maxLineChars = 16;                    // 96 / 6 = 16¸ö×Ö·û
     }
     
-    uint8_t maxLines = 0;
+    
     if (FontSize == OLED_8X16)
     {
         maxLines = 1;                         // 16 / 16 = 1ĞĞ
@@ -1061,7 +1062,7 @@ void OLED_DrawTriangle(int16_t X0, int16_t Y0, int16_t X1, int16_t Y1, int16_t X
   */
 void OLED_DrawCircle(int16_t X, int16_t Y, uint8_t Radius, uint8_t IsFilled)
 {
-    int16_t x, y, d, j;
+    int16_t x, y, d;
     
     /* ÏŞÖÆ°ë¾¶£¬±ÜÃâ³¬³öÆÁÄ» */
     if (Radius > 8) Radius = 8;
