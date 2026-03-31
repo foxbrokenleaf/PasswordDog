@@ -47,39 +47,40 @@ void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pins : MoveRight_Pin MoveDown_Pin MoveLeft_Pin MoveUp_Pin
-                           MPMK_Pin HPHK_Pin LightKick_Pin LightPunch_Pin
-                           MiddleKick_Pin HeavyKick_Pin LPLK_Pin MiddlePunch_Pin
-                           HeavyPunch_Pin */
-  GPIO_InitStruct.Pin = MoveRight_Pin|MoveDown_Pin|MoveLeft_Pin|MoveUp_Pin
-                          |MPMK_Pin|HPHK_Pin|LightKick_Pin|LightPunch_Pin
-                          |MiddleKick_Pin|HeavyKick_Pin|LPLK_Pin|MiddlePunch_Pin
-                          |HeavyPunch_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(W25Q256_CS_GPIO_Port, W25Q256_CS_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, OLED_RST_Pin|OLED_SCK_Pin|OLED_SDA_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : W25Q256_CS_Pin */
+  GPIO_InitStruct.Pin = W25Q256_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(W25Q256_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : OLED_RST_Pin OLED_SCK_Pin OLED_SDA_Pin */
+  GPIO_InitStruct.Pin = OLED_RST_Pin|OLED_SCK_Pin|OLED_SDA_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+  /*Configure GPIO pins : KEY_5_Pin KEY_4_Pin KEY_3_Pin KEY_2_Pin */
+  GPIO_InitStruct.Pin = KEY_5_Pin|KEY_4_Pin|KEY_3_Pin|KEY_2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+  /*Configure GPIO pin : KEY_1_Pin */
+  GPIO_InitStruct.Pin = KEY_1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(KEY_1_GPIO_Port, &GPIO_InitStruct);
 
 }
 

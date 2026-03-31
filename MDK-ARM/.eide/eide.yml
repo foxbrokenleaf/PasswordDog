@@ -3,7 +3,8 @@ name: Project
 type: ARM
 deviceName: STM32F103C8
 packDir: .pack/Keil/STM32F1xx_DFP.2.3.0
-srcDirs: []
+srcDirs:
+  - ../Drivers/MDriver
 virtualFolder:
   name: <virtual_root>
   files: []
@@ -19,6 +20,7 @@ virtualFolder:
           files:
             - path: ../Src/main.c
             - path: ../Src/gpio.c
+            - path: ../Src/spi.c
             - path: ../Src/tim.c
             - path: ../Src/usart.c
             - path: ../Src/usb_device.c
@@ -46,6 +48,7 @@ virtualFolder:
             - path: ../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_flash.c
             - path: ../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_flash_ex.c
             - path: ../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_exti.c
+            - path: ../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_spi.c
             - path: ../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_tim.c
             - path: ../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_tim_ex.c
             - path: ../Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_uart.c
@@ -88,8 +91,10 @@ targets:
         - ../Middlewares/ST/STM32_USB_Device_Library/Class/HID/Inc
         - .cmsis/include
         - RTE/_Project
+        - ../Drivers/MDriver
       libList: []
     excludeList: []
+    settings: {}
     toolchain: AC5
     toolchainConfigMap:
       AC5:
@@ -207,6 +212,6 @@ targets:
       OpenOCD:
         baseAddr: "0x08000000"
         bin: ""
-        interface: cmsis-dap-v1
+        interface: cmsis-dap
         target: stm32f1x
     uploader: OpenOCD

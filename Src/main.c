@@ -58,6 +58,7 @@ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE]  _
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "spi.h"
 #include "tim.h"
 #include "usart.h"
 #include "usb_device.h"
@@ -67,21 +68,14 @@ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE]  _
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "usbd_hid.h"
+#include "OLED.h"
+#include "Key.h"
+#include "oled_menu.h"
+#include "w25q256.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum{
-	KEY_DOWN = 0U,
-	KEY_HOLD,
-	KEY_UP
-}KeyActionType;
-typedef struct{
-	GPIO_TypeDef *GPIO_Port;
-	uint16_t GPIO_Pin;
-	KeyActionType KeyState;
-	uint16_t HoldCnt;
-}ButtonType;
 
 /* USER CODE END PTD */
 
@@ -98,82 +92,34 @@ typedef struct{
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint8_t KeyInputBuffAddPos = 0;
-uint8_t KeyInputBuffExecPos = 0;
-ButtonType KeyInputBuff[13] = {
-	{.GPIO_Port = MoveLeft_GPIO_Port, .GPIO_Pin = MoveLeft_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = MoveDown_GPIO_Port, .GPIO_Pin = MoveDown_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = MoveRight_GPIO_Port, .GPIO_Pin = MoveRight_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = MoveUp_GPIO_Port, .GPIO_Pin = MoveUp_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = LightPunch_GPIO_Port, .GPIO_Pin = LightPunch_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = MiddlePunch_GPIO_Port, .GPIO_Pin = MiddlePunch_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = HeavyPunch_GPIO_Port, .GPIO_Pin = HeavyPunch_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = LightKick_GPIO_Port, .GPIO_Pin = LightKick_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = MiddleKick_GPIO_Port, .GPIO_Pin = MiddleKick_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = HeavyKick_GPIO_Port, .GPIO_Pin = HeavyKick_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = LPLK_GPIO_Port, .GPIO_Pin = LPLK_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = MPMK_GPIO_Port, .GPIO_Pin = MPMK_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
-	{.GPIO_Port = HPHK_GPIO_Port, .GPIO_Pin = HPHK_Pin, .KeyState = KEY_UP, .HoldCnt = 0},
+MenuItem mainMenuItems[] = {
+    {"Platform Data", Func_PlatformMenu, MENU_TYPE_MAIN, NULL, 0, 0},
+    {"Set Password", Func_SetPassword, MENU_TYPE_MAIN, NULL, 0, 0},
+    {"System Version", Func_SystemVersion, MENU_TYPE_MAIN, NULL, 0, 0},
+    {"Serial Number", Func_SerialNumber, MENU_TYPE_MAIN, NULL, 0, 0},
+    {"Reboot", Func_Reboot, MENU_TYPE_MAIN, NULL, 0, 0},
+    {"Transfer Data", Func_TransferData, MENU_TYPE_MAIN, NULL, 0, 0}
 };
-uint8_t KeyInputBuffStr[][13] = {
-	"MoveLeft",
-	"MoveDown",
-	"MoveRight",
-	"MoveUp",
-	"LightPunch",
-	"MiddlePunch",
-	"HeavyPunch",
-	"LightKick",
-	"MiddleKick",
-	"HeavyKick",
-	"LPLK",
-	"MPMK",
-	"HPHK",
-};
-/*
-buff[0]:
-- bit0: Left CTRL
-- bit1:	Left SHIFT
-- bit2:	Left ALT
-- bit3:	Left GUI
-- bit4:	Right CTRL
-- bit5:	Right SHIFT
-- bit6:	Right ALT
-- bit7: Right GUI
-buff[1]: Padding = Always 0x00
-buff[2]: Key 1 
-buff[3]: Key 2 
-buff[4]: Key 3 
-buff[5]: Key 4 
-buff[6]: Key 5 
-buff[7]: Key 7 
-*/
-uint8_t KeyboardBuffValuePos = 0;
-uint8_t KeyboardBuff[] = {
-	0, 0, 0, 0,
-	0, 0, 0, 0
-};
-const uint8_t KeyStreetFighter6[] = {
-  4, 22, 7, 44, //ÒÆ¶¯(Move key)
-  24, 12, 18, //È­
-  13, 14, 15, //½Å
-  17, //Í¶
-  11, //¶·Æø·ÀÓù
-  9, //¶·Æø±Å·Å
-};
+
+Menu mainMenu;
+uint32_t lastSelectTime = 0;
+uint32_t tick = 0;
+uint16_t softwd = 0;
+uint8_t test_write_buf[512];
+uint8_t test_read_buf[512];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-void KeyDebug(void);
-void AddKeyValue(uint8_t AddKeyValue);
+void Handle_Buttons(void);
+void W25Q256_Test_All(void);
+void W25Q256_Test_ReadID(void);
+void W25Q256_Test_EraseWriteRead(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-
 
 /* USER CODE END 0 */
 
@@ -185,6 +131,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+
 
   /* USER CODE END 1 */
 
@@ -209,42 +156,68 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USB_DEVICE_Init();
   MX_TIM2_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
+
+	OLED_Init();
+	Key_Init();
+  W25qxx_Init();
+
 	printf("Initialize done!\r\n"); 
 	printf("HCLK Freq = %d\r\n", HAL_RCC_GetHCLKFreq());
 	printf("PCLK1 Freq = %d\r\n", HAL_RCC_GetPCLK1Freq());
 	printf("PCLK2 Freq = %d\r\n", HAL_RCC_GetPCLK2Freq());
 	printf("SYSCLK Freq = %d\r\n", HAL_RCC_GetSysClockFreq());
 
-	HAL_TIM_Base_Start_IT(&htim2); 	//å¼€å®šæ—¶ï¿??
+	HAL_TIM_Base_Start_IT(&htim2); 	//å¼€å®šæ—¶ï¿???????
+
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+    // // ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½ï¿½Ëµï¿½
+    // uint8_t mainMenuCount = sizeof(mainMenuItems) / sizeof(MenuItem);
+    // Menu_Init(&mainMenu, mainMenuItems, mainMenuCount, MENU_TYPE_MAIN, NULL);
+    // currentMenu = &mainMenu;
+    
+    // // ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    // OLED_Clear();
+    // OLED_ShowString(0, 0, "System Start", OLED_8X16);
+    // OLED_Update();
+    HAL_Delay(500);
+    // HAL_Delay(1000);
+    
+    // // ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½Ëµï¿½
+    // Menu_Display(currentMenu);
+    // lastSelectTime = HAL_GetTick();
+
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    // OLED_ShowString(0, 0, "W25Q256 Test", OLED_6X8);
+
 	// KeyDebug();
-	if(KeyInputBuff[0].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[0]);
-	if(KeyInputBuff[1].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[1]);
-	if(KeyInputBuff[2].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[2]);
-	if(KeyInputBuff[3].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[3]);
-	if(KeyInputBuff[4].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[4]);
-	if(KeyInputBuff[5].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[5]);
-	if(KeyInputBuff[6].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[6]);
-	if(KeyInputBuff[7].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[7]);
-	if(KeyInputBuff[8].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[8]);
-	if(KeyInputBuff[9].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[9]);
-	if(KeyInputBuff[10].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[10]);
-	if(KeyInputBuff[11].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[11]);
-	if(KeyInputBuff[12].KeyState != KEY_UP) AddKeyValue(KeyStreetFighter6[12]);
-	AddKeyValue(0x00);
+	// Handle_Buttons();
+		
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¡ï¿½ï¿½1.5ï¿½ï¿½ï¿???
+	// if (!currentMenu->scrollState.isScrolling && 
+	// 	HAL_GetTick() - lastSelectTime > 1500) {
+	// 	Menu_StartScroll(currentMenu, currentMenu->currentIndex);
+	// }
+	
+	// Menu_UpdateScroll(currentMenu);
 
-
-   	USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
+   	// USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
+	// OLED_Update();
+  // OLED_Clear();
+  HAL_Delay(500);
+	// for (uint8_t i = 0;i < 5;i++){
+	// 	KeyState[i] = KeyInputBuff[i].KeyState == KEY_HOLD ? 1 : 0;
+	// }
+	// softwd = 0;
   }
   /* USER CODE END 3 */
 }
@@ -296,65 +269,47 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-	
-	switch(GPIO_Pin){
-		case MoveLeft_Pin:
-		if(HAL_GPIO_ReadPin(MoveLeft_GPIO_Port, MoveLeft_Pin) == GPIO_PIN_RESET) KeyInputBuff[0].KeyState = KEY_DOWN;
-		else KeyInputBuff[0].KeyState = KEY_UP;
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+void Handle_Buttons(void) {
+    static uint32_t lastKeyTime = 0;
+    uint32_t currentTime = HAL_GetTick();
+
+    if (currentTime - lastKeyTime < 200) return;
     
-		__HAL_GPIO_EXTI_CLEAR_IT(MoveLeft_Pin);
-		break;
-		case MoveDown_Pin:
-		if(HAL_GPIO_ReadPin(MoveDown_GPIO_Port, MoveDown_Pin) == GPIO_PIN_RESET) KeyInputBuff[1].KeyState = KEY_DOWN;
-		else KeyInputBuff[0].KeyState = KEY_UP;
-    
-		__HAL_GPIO_EXTI_CLEAR_IT(MoveDown_Pin);
-		break;		
-
-	}
-	KeyInputBuffAddPos %= 7;
+    // ï¿½ó°´¼ï¿½ - ï¿½ï¿½ï¿½ï¿½
+    if (KeyInputBuff[0].KeyState != KEY_UP) {
+        Menu_Back();
+        KeyInputBuff[0].KeyState = KEY_UP;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
+        lastKeyTime = currentTime;
+    }
+    // ï¿½Ï°ï¿½ï¿½ï¿½
+    if (KeyInputBuff[1].KeyState != KEY_UP) {
+        Menu_Up(currentMenu);
+        KeyInputBuff[1].KeyState = KEY_UP;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
+        lastSelectTime = currentTime;
+        lastKeyTime = currentTime;
+    }
+    // OKï¿½ï¿½ï¿½ï¿½
+    if (KeyInputBuff[2].KeyState != KEY_UP) {
+        Menu_Enter(currentMenu);
+        KeyState[2] = 0;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
+        lastKeyTime = currentTime;
+    }
+    // ï¿½Ò°ï¿½ï¿½ï¿½
+    if (KeyInputBuff[3].KeyState != KEY_UP) {
+        KeyState[3] = 0;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
+        lastKeyTime = currentTime;
+    }
+    // ï¿½Â°ï¿½ï¿½ï¿½
+    if (KeyInputBuff[4].KeyState != KEY_UP) {
+        Menu_Down(currentMenu);
+        KeyState[4] = 0;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
+        lastSelectTime = currentTime;
+        lastKeyTime = currentTime;
+    }
 }
 
-void KeyScan(ButtonType *bt){
-	if(HAL_GPIO_ReadPin(bt->GPIO_Port, bt->GPIO_Pin) == GPIO_PIN_RESET){
-		bt->HoldCnt++;
-		if(bt->HoldCnt > 100) bt->KeyState = KEY_HOLD;
-	}
-	else{
-		bt->KeyState = KEY_UP;
-		bt->HoldCnt = 0;
-	} 
-}
 
-void KeysScan(void){
-
-}
-
-void KeyDebug(void){
-	uint8_t i = 0;
-	uint8_t j = 0;
-	for(i = 0;i < 13;i++){
-		if(KeyInputBuff[i].KeyState != KEY_UP){
-			printf("==========================\r\n");
-			printf("Key name: %s\r\n", KeyInputBuffStr[i]);
-			printf("Key state: %d(0 = Down 1 = Hold 2 = Up)\r\n", KeyInputBuff[i].KeyState);
-			printf("USB data: ");
-			for(j = 0;j < 6;j++) printf("%02d ", KeyboardBuff[2 + j]);
-			printf("\r\n");	
-			printf("==========================\r\n");
-		}
-	}
-}
-
-void AddKeyValue(uint8_t v){
-	KeyboardBuff[7] = KeyboardBuff[6];
-	KeyboardBuff[6] = KeyboardBuff[5];
-	KeyboardBuff[5] = KeyboardBuff[4];
-	KeyboardBuff[4] = KeyboardBuff[3];
-	KeyboardBuff[3] = KeyboardBuff[2];
-	KeyboardBuff[2] = v;
-}
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -365,14 +320,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		KeyScan(KeyInputBuff + 2);
 		KeyScan(KeyInputBuff + 3);
 		KeyScan(KeyInputBuff + 4);
-		KeyScan(KeyInputBuff + 5);
-		KeyScan(KeyInputBuff + 6);
-		KeyScan(KeyInputBuff + 7);
-		KeyScan(KeyInputBuff + 8);
-		KeyScan(KeyInputBuff + 9);
-		KeyScan(KeyInputBuff + 10);
-		KeyScan(KeyInputBuff + 11);
-		KeyScan(KeyInputBuff + 12);
+
+		// softwd++;
+		// if(softwd > 10000){
+		// 	Func_Reboot();
+		// }
 	}
 }
 
