@@ -92,7 +92,7 @@ Data Lenght -> 196Byte
 #include <stdio.h>
 #include "OLED.h"
 #include "Key.h"
-// #include "oled_menu.h"
+#include "oled_menu.h"
 #include "w25q256.h"
 #include "data_storage.h"
 #include "sha_256.h"
@@ -123,7 +123,7 @@ uint32_t lastSelectTime = 0;
 uint32_t tick = 0;
 uint16_t softwd = 0;
 
-uint8_t DriverLock = 1;
+uint8_t DriverLock = 0;
 uint8_t UnlockPassword[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 uint8_t UnlockPasswordIndex = 0;
 uint8_t ResetPassword = 0;
@@ -180,6 +180,7 @@ int main(void)
 	OLED_Init();
 	Key_Init();
   W25qxx_Init();
+  MenuInit(MainMenu);
 
 	printf("Initialize done!\r\n"); 
 	printf("HCLK Freq = %d\r\n", HAL_RCC_GetHCLKFreq());
@@ -224,12 +225,10 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
   Handle_Buttons();
-  OLED_ShowString(0, 0, "      MAIN      ", OLED_6X8);
-  OLED_Printf(0, 0, OLED_6X8, "Left:%d", KeyInputBuff[0].KeyState);
+  MenuDisplay();
   
     // USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
-  OLED_Update();
-  OLED_Clear();
+
   softwd = 0;
   }
   /* USER CODE END 3 */
@@ -330,18 +329,18 @@ void Handle_Buttons(void) {
     else{
       //Left
       if (KeyInputBuff[0].KeyState != KEY_UP) {
-          // Menu_Back();
+          Menu_Back();
           lastKeyTime = currentTime;
       }
       //Up
       if (KeyInputBuff[1].KeyState != KEY_UP) {
-          // Menu_Up(currentMenu);
+          Menu_Up();
           lastSelectTime = currentTime;
           lastKeyTime = currentTime;
       }
       // OK
       if (KeyInputBuff[2].KeyState != KEY_UP) {
-          // Menu_Enter(currentMenu);
+          Menu_Enter();
           lastKeyTime = currentTime;
       }
       //Right
@@ -350,7 +349,7 @@ void Handle_Buttons(void) {
       }
       //Down
       if (KeyInputBuff[4].KeyState != KEY_UP) {
-          // Menu_Down(currentMenu);
+          Menu_Down();
           lastSelectTime = currentTime;
           lastKeyTime = currentTime;
       }
