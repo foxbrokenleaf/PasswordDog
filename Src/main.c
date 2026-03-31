@@ -97,6 +97,7 @@ Data Lenght -> 196Byte
 #include "w25q256.h"
 #include "data_storage.h"
 #include "sha_256.h"
+#include "InternalFlash.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -121,6 +122,10 @@ Data Lenght -> 196Byte
 uint32_t lastSelectTime = 0;
 uint32_t tick = 0;
 uint16_t softwd = 0;
+
+uint8_t DriverLock = 1;
+uint8_t UnlockPassword[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+uint8_t UnlockPasswordIndex = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -142,9 +147,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  SHA256_CTX ctx;
-  uint8_t hash[32];
-  uint32_t data = 20230304;
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -187,34 +190,41 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-    OLED_Clear();
-    OLED_ShowString(0, 0, "System Start", OLED_8X16);
-    OLED_Update();
-    HAL_Delay(500);
+  OLED_Clear();
+  OLED_ShowString(0, 0, "System Start", OLED_8X16);
+  OLED_Update();
+  HAL_Delay(500);
 
-    SHA256_Init(&ctx);
-    SHA256_Update(&ctx, &data, 8);
-    SHA256_Final(&ctx, hash);
 
-    OLED_Clear();
-    for(uint8_t i = 0;i < 16;i++){
-      OLED_ShowHexNum(i * 12, 0, hash[i], 2, OLED_6X8);
-      OLED_ShowHexNum(i * 12, 8, hash[16 + i], 2, OLED_6X8);
+  //Lock driver
+  while(DriverLock){
+    Handle_Buttons();
+
+    if(DriverLock){
+      OLED_ShowChar(UnlockPasswordIndex * 12, 0, '+', OLED_6X8);
+      //0 12 24 36 48 60 72 84
+      OLED_Printf(0, 8, OLED_6X8, "%01d %01d %01d %01d %01d %01d %01d %01d", UnlockPassword[0], 
+        UnlockPassword[1], UnlockPassword[2], UnlockPassword[3], UnlockPassword[4], UnlockPassword[5], 
+        UnlockPassword[6], UnlockPassword[7]);
     }
     OLED_Update();
+    OLED_Clear();
+    softwd = 0;
+  }
 
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    Handle_Buttons();
+  Handle_Buttons();
+  
 
-
-      // USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
-    OLED_Update();
-    softwd = 0;
-    }
+    // USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
+  OLED_Update();
+  OLED_Clear();
+  softwd = 0;
+  }
     /* USER CODE END 3 */
 }
 
@@ -265,43 +275,104 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+
 void Handle_Buttons(void) {
     static uint32_t lastKeyTime = 0;
     uint32_t currentTime = HAL_GetTick();
-
-    if (currentTime - lastKeyTime < 200) return;
-    
-    // ï¿½ó°´¼ï¿½ - ï¿½ï¿½ï¿½ï¿½
-    if (KeyInputBuff[0].KeyState != KEY_UP) {
-        // Menu_Back();
-        KeyInputBuff[0].KeyState = KEY_UP;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
-        lastKeyTime = currentTime;
+    if (currentTime - lastKeyTime < 200) return;    
+    if(DriverLock){
+      //Left
+      if (KeyInputBuff[0].KeyState != KEY_UP) {
+          if(UnlockPasswordIndex > 0) UnlockPasswordIndex--;
+          lastKeyTime = currentTime;
+      }
+      // Up
+      if (KeyInputBuff[1].KeyState != KEY_UP) {
+          if(UnlockPassword[UnlockPasswordIndex] < 9) UnlockPassword[UnlockPasswordIndex]++;
+          lastSelectTime = currentTime;
+          lastKeyTime = currentTime;
+      }
+      // OK
+      if (KeyInputBuff[2].KeyState != KEY_UP) {
+          uint32_t tmp_pwd = UnlockPassword[0] * 10 ^ 7;
+          tmp_pwd += UnlockPassword[1] * 10 ^ 6;
+          tmp_pwd += UnlockPassword[2] * 10 ^ 5;
+          tmp_pwd += UnlockPassword[3] * 10 ^ 4;
+          tmp_pwd += UnlockPassword[4] * 10 ^ 3;
+          tmp_pwd += UnlockPassword[5] * 10 ^ 2;
+          tmp_pwd += UnlockPassword[6] * 10 ^ 1;
+          tmp_pwd += UnlockPassword[7];
+          SHA256_Init(&ctx);
+          SHA256_Update(&ctx, &tmp_pwd, 8);
+          SHA256_Final(&ctx, hash);
+          /* ³õÊ¼»¯ */
+          INTFLASH_Init();
+          /* ²Á³ýÓÃ»§ÇøÓò */
+          uint8_t result = 0;
+          uint8_t read_data[32];
+          uint32_t hasPWD = 0x00;
+          if (result == INTFLASH_OK) {
+              /* Ð´ÈëÊý¾Ý */
+              INTFLASH_ReadBuffer(INTFLASH_USER_START_ADDR, read_data, sizeof(hash));
+              for(uint8_t i = 0;i < 32;i++) if(read_data[i] == 0xFF) hasPWD = hasPWD | (0x80000000 >> i);
+              if(hasPWD == 0xFFFFFFFF) result = INTFLASH_WriteBuffer(INTFLASH_USER_START_ADDR, hash, sizeof(hash));
+              if (result == INTFLASH_OK) {
+                  /* ¶ÁÈ¡Êý¾Ý */
+                  INTFLASH_ReadBuffer(INTFLASH_USER_START_ADDR, read_data, sizeof(hash));
+                  /* ÑéÖ¤ */
+                  if (INTFLASH_VerifyData(INTFLASH_USER_START_ADDR, hash, sizeof(hash))) {
+                      /* ³É¹¦ */
+                      OLED_ShowString(0,0,"  WELCOME  ", OLED_8X16);
+                      OLED_Update();
+                      HAL_Delay(500);
+                      DriverLock = 0;
+                  }
+              }
+          }
+          
+          /* Ëø¶¨Flash */
+          INTFLASH_DeInit();          
+          lastKeyTime = currentTime;
+      }
+      // Right
+      if (KeyInputBuff[3].KeyState != KEY_UP) {
+          if(UnlockPasswordIndex < 7) UnlockPasswordIndex++;
+          lastKeyTime = currentTime;
+      }
+      // Down
+      if (KeyInputBuff[4].KeyState != KEY_UP) {
+          if(UnlockPassword[UnlockPasswordIndex] > 0) UnlockPassword[UnlockPasswordIndex]--;
+          lastSelectTime = currentTime;
+          lastKeyTime = currentTime;
+      }
     }
-    // ï¿½Ï°ï¿½ï¿½ï¿½
-    if (KeyInputBuff[1].KeyState != KEY_UP) {
-        // Menu_Up(currentMenu);
-        KeyInputBuff[1].KeyState = KEY_UP;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
-        lastSelectTime = currentTime;
-        lastKeyTime = currentTime;
-    }
-    // OKï¿½ï¿½ï¿½ï¿½
-    if (KeyInputBuff[2].KeyState != KEY_UP) {
-        // Menu_Enter(currentMenu);
-        KeyState[2] = 0;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
-        lastKeyTime = currentTime;
-    }
-    // ï¿½Ò°ï¿½ï¿½ï¿½
-    if (KeyInputBuff[3].KeyState != KEY_UP) {
-        KeyState[3] = 0;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
-        lastKeyTime = currentTime;
-    }
-    // ï¿½Â°ï¿½ï¿½ï¿½
-    if (KeyInputBuff[4].KeyState != KEY_UP) {
-        // Menu_Down(currentMenu);
-        KeyState[4] = 0;  // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½?
-        lastSelectTime = currentTime;
-        lastKeyTime = currentTime;
+    else{
+      //Left
+      if (KeyInputBuff[0].KeyState != KEY_UP) {
+          // Menu_Back();
+          lastKeyTime = currentTime;
+      }
+      //Up
+      if (KeyInputBuff[1].KeyState != KEY_UP) {
+          // Menu_Up(currentMenu);
+          lastSelectTime = currentTime;
+          lastKeyTime = currentTime;
+      }
+      // OK
+      if (KeyInputBuff[2].KeyState != KEY_UP) {
+          // Menu_Enter(currentMenu);
+          lastKeyTime = currentTime;
+      }
+      //Right
+      if (KeyInputBuff[3].KeyState != KEY_UP) {
+          lastKeyTime = currentTime;
+      }
+      //Down
+      if (KeyInputBuff[4].KeyState != KEY_UP) {
+          // Menu_Down(currentMenu);
+          lastSelectTime = currentTime;
+          lastKeyTime = currentTime;
+      }
     }
 }
 
@@ -319,11 +390,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 		softwd++;
 		if(softwd > 10000){
-			// Func_Reboot();
+      __set_FAULTMASK(1);
+			NVIC_SystemReset();
 		}
 	}
 }
-
 /* USER CODE END 4 */
 
 /**

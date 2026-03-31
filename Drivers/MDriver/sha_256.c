@@ -6,6 +6,9 @@
 #include "sha_256.h"
 #include <string.h>
 
+SHA256_CTX ctx;
+uint8_t hash[32];
+
 /* 定义基本数据类型 */
 typedef uint8_t  u8;
 typedef uint32_t u32;
@@ -333,7 +336,7 @@ void HMAC_SHA256_Update(SHA256_CTX *ctx, const void *data, u32 len) {
 void HMAC_SHA256_Final(SHA256_CTX *ctx, u8 *hmac) {
     u8 opad[64];
     u8 inner_hash[32];
-    u32 i;
+    // u32 i;
     SHA256_CTX outer_ctx;
     
     /* 完成内部哈希 */
