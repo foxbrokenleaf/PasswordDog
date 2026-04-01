@@ -60,14 +60,13 @@ Block   -> 256 Data
 Chip    -> 131072 Data
 
 No        : 4Byte
-Platform  : 93Byte
-Account   : 93Byte
-Password  : 32Byte
+Platform  : 32Byte
+Account   : 32Byte
+Password  : 128Byte
 
-fttj
-xngkuefosdzoyhvhhdsiemhiqqqwcydppbwfeiyisyfedktwnorhjwyvnphatoicerkjcrwdkipvwbdpxzcjwngqequda
-nihatnhcjrhnowgxdbkjistbxugwerruahtfcbzigounivkkldggcpwigdjucrbowwgoaftwiklacepsonyuztvajgcvs
-fxnvplwzhjrjlrgyhtecdyazffkpbvpopvdgprflhmpqjwxkdlzifegmkjpfifjc
+Platfrom(32Byte):Github
+Account(32Byte):User@exmple.com
+Password(AES - 128Byte):6175dbaffbfa020634fef45d79b3d392986ab04f577bd23551e231fe13b7bc2f986ab04f577bd23551e231fe13b7bc2f986ab04f577bd23551e231fe13b7bc2f
 
 
 -----------------------------
@@ -98,6 +97,7 @@ Data Lenght -> 196Byte
 #include "sha_256.h"
 #include "InternalFlash.h"
 #include "usbd_cdc_if.h"
+#include "aes_ecb.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -518,6 +518,63 @@ void StatusSwitch(void){
       GetDataForPC_Flag = 0;
     }
   }
+
+    // 测试不同的数据长度
+    const char *test_cases[] = {
+        "00112233445566778899AABBCCDDEEFF",           // 16字节，正好一个块
+        "00112233445566778899AABBCCDDEEFF0011",       // 17字节，需要填充
+        "00112233445566778899AABBCCDDEEFF00112233",   // 18字节，需要填充
+        "0011223344556677",                           // 8字节，需要填充
+        "48656C6C6F20576F726C64"                      // "Hello World" 11字节
+    };
+    
+    const char *key = "15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225";
+    
+    for (int i = 0; i < 5; i++) {
+        char ciphertext[256] = {0};
+        char decrypted[256] = {0};
+        
+        usb_printf("\n========== Test Case %d ==========\n", i + 1);
+        usb_printf("Original Data: %s\n", test_cases[i]);
+        usb_printf("Original Length: %d bytes\n", (int)strlen(test_cases[i]) / 2);
+        usb_printf("Key: %s\n", key);
+        
+        // 加密
+        int ret = AES_ECB_Encrypt(test_cases[i], key, ciphertext, sizeof(ciphertext));
+        if (ret == AES_SUCCESS) {
+            usb_printf("Encrypted: %s\n", ciphertext);
+            usb_printf("Encrypted Length: %d bytes\n", (int)strlen(ciphertext) / 2);
+            
+            // 解密
+            ret = AES_ECB_Decrypt(ciphertext, key, decrypted, sizeof(decrypted));
+            if (ret == AES_SUCCESS) {
+                usb_printf("Decrypted: %s\n", decrypted);
+                usb_printf("Decrypted Length: %d bytes\n", (int)strlen(decrypted) / 2);
+                
+                // 验证结果
+                if (strcmp(decrypted, test_cases[i]) == 0) {
+                    usb_printf("Result: SUCCESS\n");
+                } else {
+                    usb_printf("Result: FAILED - Data mismatch\n");
+                    usb_printf("Expected: %s\n", test_cases[i]);
+                    usb_printf("Got: %s\n", decrypted);
+                }
+            } else {
+                usb_printf("Decryption failed with code: %d\n", ret);
+            }
+        } else {
+            usb_printf("Encryption failed with code: %d\n", ret);
+        }
+    }
+    
+    // 测试缓冲区大小检查
+    usb_printf("\n========== Buffer Size Test ==========\n");
+    char small_buffer[10] = {0};
+    int ret = AES_ECB_Encrypt("00112233", key, small_buffer, sizeof(small_buffer));
+    if (ret == AES_ERR_BUFFER_TOO_SMALL) {
+        usb_printf("Buffer size check works correctly\n");
+    }  
+
 }
 
 /* USER CODE END 4 */
