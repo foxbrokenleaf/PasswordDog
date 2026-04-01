@@ -23,6 +23,7 @@
 
 /* USER CODE BEGIN INCLUDE */
 #include <stdarg.h>
+#include <string.h>
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -259,8 +260,15 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+  // CDC_Transmit_FS(&Buf[0], *Len); //Callback
+  memset(cdc_buff, '\0', 64);
+  strcpy(cdc_buff, (const char*)Buf);
+  ContentIndex_m = 0;
+  CDC_Transmit_FS(Buf, 64);
+  CDC_Transmit_FS(cdc_buff, 64);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+  memset(Buf, '\0', 64);
   return (USBD_OK);
   /* USER CODE END 6 */
 }

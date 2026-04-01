@@ -37,6 +37,19 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 extern uint16_t softwd;
+extern uint8_t DriverLock;
+extern uint8_t ResetPassword;
+
+extern uint8_t showMenu_Flag;
+extern uint8_t showSystemVersion_Flag;
+extern uint8_t showSystemSerialNumber_Flag;
+extern uint8_t GetDataForPC_Flag;
+extern uint8_t GetDataForPC_DataIndex;
+
+extern uint8_t cdc_buff_index;
+extern uint8_t cdc_buff[64];
+
+extern uint8_t ContentIndex_m;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -53,7 +66,10 @@ extern uint16_t softwd;
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+void Handle_Buttons(void);
+void PasswordUI(void);
+void VerifyPassword(void);
+void StatusSwitch(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

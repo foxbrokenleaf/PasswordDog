@@ -107,7 +107,8 @@ Data Lenght -> 196Byte
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+// ¶¨Òå´æ´¢µØÖ·
+#define UNIQUE_ID_BASE_ADDRESS 0x1FFFF7E8
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -123,18 +124,31 @@ uint32_t lastSelectTime = 0;
 uint32_t tick = 0;
 uint16_t softwd = 0;
 
-uint8_t DriverLock = 0;
+uint8_t DriverLock = 1;
 uint8_t UnlockPassword[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 uint8_t UnlockPasswordIndex = 0;
 uint8_t ResetPassword = 0;
+uint8_t read_data[32];
+
+uint8_t showMenu_Flag = 1;
+uint8_t showSystemVersion_Flag = 0;
+uint8_t showSystemSerialNumber_Flag = 0;
+
+uint8_t GetDataForPC_Flag = 0;
+uint8_t GetDataForPC_DataIndex = 0;
+
+uint8_t cdc_buff_index = 0;
+uint8_t cdc_buff[64];
+
+uint32_t lastcurri_m = 0;
+uint8_t ContentIndex_m = 0;
+uint8_t ContentLenght_m = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-void Handle_Buttons(void);
-void PasswordUI(void);
-void VerifyPassword(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -180,7 +194,9 @@ int main(void)
 	OLED_Init();
 	Key_Init();
   W25qxx_Init();
-  MenuInit(MainMenu);
+  
+
+  HAL_Delay(3000);
 
 	printf("Initialize done!\r\n"); 
 	printf("HCLK Freq = %d\r\n", HAL_RCC_GetHCLKFreq());
@@ -205,6 +221,7 @@ int main(void)
   OLED_Update();
   HAL_Delay(500);
 
+  INTFLASH_ReadBuffer(INTFLASH_USER_START_ADDR, read_data, sizeof(hash));
 
   //Lock driver
   while(DriverLock){
@@ -213,11 +230,13 @@ int main(void)
     if(DriverLock){
       PasswordUI();
     }
-    
-    OLED_Update();
-    OLED_Clear();
+
     softwd = 0;
   }
+
+  HAL_Delay(500);
+  MenuInit(MainMenu);
+  OLED_Clear();
 
   while (1)
   {
@@ -225,10 +244,60 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
   Handle_Buttons();
-  MenuDisplay();
+
+  if(showSystemVersion_Flag){
+    OLED_ShowString(0, 0, "Ver1.0.0.00", OLED_8X16);
+    OLED_Update();
+  }
+  if(showSystemSerialNumber_Flag){
+    OLED_ShowHexNum(0, 0, *(volatile uint32_t *)(UNIQUE_ID_BASE_ADDRESS), 8, OLED_6X8);
+    OLED_ShowHexNum(48, 0, *(volatile uint32_t *)(UNIQUE_ID_BASE_ADDRESS + 4), 8, OLED_6X8);
+    OLED_ShowHexNum(24, 8, *(volatile uint32_t *)(UNIQUE_ID_BASE_ADDRESS + 8), 8, OLED_6X8);    
+    OLED_Update();
+  }
+  if(GetDataForPC_Flag){
+    uint32_t nowcurri = HAL_GetTick();
+    if(nowcurri > lastcurri_m + 1000){
+        lastcurri_m = nowcurri;
+        ContentIndex_m--;
+    }     
+    switch (GetDataForPC_DataIndex)
+    {
+    case 0:
+      if(ContentIndex_m == 0 || ContentLenght_m == 0) ContentLenght_m = ContentIndex_m = strlen((cdc_buff));
+      OLED_ShowString(0, 0, (cdc_buff + ContentLenght_m - ContentIndex_m), OLED_6X8);
+      OLED_ShowString(0, 8, "Platfrom", OLED_6X8);
+      OLED_Update();
+      OLED_Clear();
+      break;
+    case 1:
+      if(ContentIndex_m == 0 || ContentLenght_m == 0) ContentLenght_m = ContentIndex_m = strlen((cdc_buff));
+      OLED_ShowString(0, 0, (cdc_buff + ContentLenght_m - ContentIndex_m), OLED_6X8);
+      OLED_ShowString(0, 8, "Account", OLED_6X8);
+      OLED_Update();
+      OLED_Clear();
+      break;
+    case 2:
+      if(ContentIndex_m == 0 || ContentLenght_m == 0) ContentLenght_m = ContentIndex_m = strlen((cdc_buff));
+      OLED_ShowString(0, 0, (cdc_buff + ContentLenght_m - ContentIndex_m), OLED_6X8);
+      OLED_ShowString(0, 8, "Password", OLED_6X8);
+      OLED_Update();
+      OLED_Clear();
+      break;            
+    
+    default:
+      break;
+    }
+  }
+  if(showMenu_Flag) MenuDisplay();
+  if(ResetPassword){
+    if(DriverLock == 1){
+      PasswordUI();
+    }    
+  }
   
     // USBD_HID_SendReport(&hUsbDeviceFS, KeyboardBuff, sizeof(KeyboardBuff) / sizeof(KeyboardBuff[0]));
-
+  HAL_Delay(10);
   softwd = 0;
   }
   /* USER CODE END 3 */
@@ -329,26 +398,32 @@ void Handle_Buttons(void) {
     else{
       //Left
       if (KeyInputBuff[0].KeyState != KEY_UP) {
-          Menu_Back();
-          lastKeyTime = currentTime;
+        usb_printf("Left Click!\r\n");
+        Menu_Back();
+        lastKeyTime = currentTime;
       }
       //Up
       if (KeyInputBuff[1].KeyState != KEY_UP) {
-          Menu_Up();
-          lastSelectTime = currentTime;
-          lastKeyTime = currentTime;
+        Menu_Up();
+        usb_printf("Up Click!\r\n");        
+        lastSelectTime = currentTime;
+        lastKeyTime = currentTime;
       }
       // OK
       if (KeyInputBuff[2].KeyState != KEY_UP) {
-          Menu_Enter();
+        usb_printf("OK Click!\r\n");  
+          if(showMenu_Flag) Menu_Enter();
           lastKeyTime = currentTime;
       }
       //Right
       if (KeyInputBuff[3].KeyState != KEY_UP) {
+        usb_printf("Right Click!\r\n");  
+          StatusSwitch();
           lastKeyTime = currentTime;
       }
       //Down
       if (KeyInputBuff[4].KeyState != KEY_UP) {
+        usb_printf("Down Click!\r\n");  
           Menu_Down();
           lastSelectTime = currentTime;
           lastKeyTime = currentTime;
@@ -362,19 +437,24 @@ void PasswordUI(void){
   OLED_Printf(0, 8, OLED_6X8, "%01d %01d %01d %01d %01d %01d %01d %01d", UnlockPassword[0], 
     UnlockPassword[1], UnlockPassword[2], UnlockPassword[3], UnlockPassword[4], UnlockPassword[5], 
     UnlockPassword[6], UnlockPassword[7]);
+
+    OLED_Update();
+    OLED_Clear();    
 }
 
 void VerifyPassword(void){
   /* ï¿½ï¿½Ê¼ï¿½ï¿½ */
   INTFLASH_Init();
-  if(ResetPassword) INTFLASH_EraseUserArea();
+  if(ResetPassword && DriverLock == 1) INTFLASH_EraseUserArea();
   uint8_t result = 0;
-  uint8_t read_data[32];
+
   uint32_t hasPWD = 0x00;
   if (result == INTFLASH_OK) {
       /* Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ */
-      INTFLASH_ReadBuffer(INTFLASH_USER_START_ADDR, read_data, sizeof(hash));
+      
       for(uint8_t i = 0;i < 32;i++) if(read_data[i] == 0xFF) hasPWD = hasPWD | (0x80000000 >> i);
+      // for(uint8_t i = 0;i < 32;i++) usb_printf("%02X", read_data[i]);
+      usb_printf("\r\n");
       if(hasPWD == 0xFFFFFFFF) result = INTFLASH_WriteBuffer(INTFLASH_USER_START_ADDR, hash, sizeof(hash));
       if (result == INTFLASH_OK) {
           /* ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ */
@@ -382,9 +462,18 @@ void VerifyPassword(void){
           /* ï¿½ï¿½Ö¤ */
           if (INTFLASH_VerifyData(INTFLASH_USER_START_ADDR, hash, sizeof(hash))) {
               /* ï¿½É¹ï¿½ */
-              OLED_ShowString(0,0,"  WELCOME  ", OLED_8X16);
-              OLED_Update();
-              HAL_Delay(500);
+              if(!ResetPassword){
+                for(uint8_t i = 0;i < 8;i++) UnlockPassword[i] = 0;
+                OLED_ShowString(0,0,"  WELCOME  ", OLED_8X16);
+                OLED_Update();
+                HAL_Delay(500);
+              }
+              else{
+                OLED_ShowString(0,0,"SET PWD OK!", OLED_8X16);
+                OLED_Update();
+                HAL_Delay(500);                
+                Function_Reboot();
+              }
               DriverLock = 0;
           }
       }
@@ -406,11 +495,31 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 		softwd++;
 		if(softwd > 10000){
-      __set_FAULTMASK(1);
-			NVIC_SystemReset();
+      Function_Reboot();
 		}
 	}
 }
+
+void StatusSwitch(void){
+  if(showSystemVersion_Flag){
+    showSystemVersion_Flag = 0;
+    showMenu_Flag = 1;
+  }
+  if(showSystemSerialNumber_Flag){
+    showSystemSerialNumber_Flag = 0;
+    showMenu_Flag = 1;
+  } 
+  if(GetDataForPC_Flag){
+    GetDataForPC_DataIndex++;
+    memset(cdc_buff, '\0', 64);
+    if(GetDataForPC_DataIndex == 3){
+      GetDataForPC_DataIndex = 0;
+      showMenu_Flag = 1;
+      GetDataForPC_Flag = 0;
+    }
+  }
+}
+
 /* USER CODE END 4 */
 
 /**
